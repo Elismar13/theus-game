@@ -1,0 +1,53 @@
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: #0b0a14;
+}
+
+body {
+  display: grid;
+  place-items: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #9d97bb;
+}
+
+#stage {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 16px;
+}
+
+canvas#game {
+  display: block;
+  image-rendering: pixelated;
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 2px #241d3a,
+    0 18px 40px rgb(0 0 0 / 55%);
+  touch-action: none;
+}
+
+.badge {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.badge[data-link='up'] {
+  color: #57c785;
+}
+
+.badge[data-link='down'] {
+  color: #ef476f;
+}
