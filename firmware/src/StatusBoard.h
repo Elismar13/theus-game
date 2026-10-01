@@ -27,6 +27,10 @@ class StatusBoard {
   // backlight step. Success is visible by eye.
   void selfTest();
 
+  // The Link state, large enough to read between Runs: `LINK OK` or
+  // `LINK LOST`. The panel is a Status Board, not a HUD (ADR-0005).
+  void showLink(bool up);
+
  private:
   TFT_eSPI panel_;
 };

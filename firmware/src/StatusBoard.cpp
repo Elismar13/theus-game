@@ -65,3 +65,13 @@ void StatusBoard::selfTest() {
   }
   setBrightness(kBrightnessLevelMax);
 }
+
+void StatusBoard::showLink(bool up) {
+  panel_.fillScreen(TFT_BLACK);
+  panel_.setTextDatum(TC_DATUM);
+  panel_.setTextSize(2);
+  panel_.setTextColor(TFT_WHITE, TFT_BLACK);
+  panel_.drawString("LINK", kWidth / 2, 56);
+  panel_.setTextColor(up ? TFT_GREEN : TFT_RED, TFT_BLACK);
+  panel_.drawString(up ? "OK" : "LOST", kWidth / 2, 82);
+}

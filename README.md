@@ -2,7 +2,8 @@
 
 A chest-worn motion controller and a browser runner game. You really jump and really crouch; the character obeys, and the state of your run is mirrored onto a small panel on your chest.
 
-> **Status:** design settled, documentation written, no code yet.
+> **Status:** in progress. The walking skeleton is up: the Device serves the
+> game page and the Link carries NDJSON; see the roadmap in the issue tracker.
 
 ## How it fits together
 
@@ -44,16 +45,23 @@ An ESP32-WROOM-32D devkit, a BMI160 on I2C, a 0.96" 80×160 ST7735S IPS panel on
 
 ## Building and flashing
 
-Not yet wired up. When it is, the intended flow is:
+The game page is bundled into the firmware's LittleFS filesystem, so flashing is
+two steps: the page, then the firmware.
 
 ```
-# firmware
-cd firmware && pio run && pio run -t upload && pio run -t uploadfs
-
 # web
-cd web && npm install && npm run dev      # development, against the Device's WS endpoint
-cd web && npm run build                   # output copied into firmware/data/ for LittleFS
+cd web && npm install
+npm run dev                               # development; set VITE_LINK_URL to the Device's WS endpoint
+npm run build                             # output lands in firmware/data/ for LittleFS
+
+# firmware
+cd firmware
+pio run -t uploadfs                       # write firmware/data/ to the Device's flash
+pio run -t upload                         # flash the firmware itself
+pio test -e native                        # host tests for the pure modules
 ```
+
+`pio run -t buildfs` builds the filesystem image on its own, without a Device.
 
 ## Definition of done
 

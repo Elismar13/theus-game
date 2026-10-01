@@ -2,6 +2,7 @@
 
 #include "Button.h"
 #include "Buzzer.h"
+#include "LinkServer.h"
 #include "StatusBoard.h"
 
 namespace {
@@ -12,6 +13,7 @@ constexpr uint8_t kButtonPin = 32;
 StatusBoard statusBoard;
 Button button;
 Buzzer buzzer;
+LinkServer linkServer;
 
 // The button's job in the finished Device is Recalibration (long press) and
 // mute (double-click); its other bindings arrive with the integration ticket.
@@ -75,18 +77,24 @@ void printHelp() {
 void setup() {
   Serial.begin(115200);
   Serial.println();
-  Serial.println("theus-game: button and buzzer bring-up");
+  Serial.println("theus-game: walking skeleton");
 
   statusBoard.begin();
-  statusBoard.selfTest();
-
   buzzer.begin();
   pinMode(kButtonPin, INPUT_PULLUP);
+
+  // The access point and the Link come up before the panel self-test, so the
+  // page can connect while the bench proof runs.
+  linkServer.begin(statusBoard);
+  statusBoard.selfTest();
+  statusBoard.showLink(linkServer.linkUp());
 
   printHelp();
 }
 
 void loop() {
+  linkServer.loop();
+
   const bool pressed = digitalRead(kButtonPin) == LOW;
   handleEvent(button.update(pressed, millis()));
 

@@ -13,6 +13,22 @@ pio device monitor   # 115200 baud
 pio test -e native   # host tests for the pure modules
 ```
 
+### Getting the game page onto the Device
+
+The page is served from LittleFS, not compiled into the firmware. `npm run
+build` in `web/` already writes into `firmware/data/` (its Vite `outDir`), so the
+whole deploy is:
+
+```sh
+cd web && npm run build        # typecheck + bundle into firmware/data/
+cd ../firmware
+pio run -t uploadfs            # write firmware/data/ to the LittleFS partition
+pio run -t upload              # flash the firmware itself
+```
+
+`pio run -t buildfs` builds the filesystem image without a Device, which is
+useful as a check. `firmware/data/` is generated and git-ignored.
+
 ## Status Board bring-up
 
 The panel is a 0.96" 80x160 IPS ST7735S. Its TFT_eSPI configuration lives in
@@ -49,11 +65,37 @@ Recalibration, low battery) so each can be checked by ear, and `m` toggles mute.
 The backlight and buzzer share the LEDC peripheral: the backlight is on channel
 1 and the buzzer on channel 0, the channel Arduino-ESP32's `tone()` claims.
 
+## The Link
+
+The Device is a WiFi SoftAP named `THEUS-RUN` at `192.168.4.1` (mDNS
+`theus.local`). It serves the built game page from LittleFS over HTTP on port 80
+and runs the Link — a WebSocket carrying NDJSON — on port 81. The contract is
+[`../docs/protocol.md`](../docs/protocol.md).
+
+On boot, the Device sends `hello`, then `hb` every second. The game page answers
+with `hello` and re-sends `state` at least every second; three consecutive missed
+heartbeats (about 3 s) is Link Down. `LINK OK` / `LINK LOST` is shown on both the
+page and the Status Board. Exactly one Session exists: a second page takes over
+and the first is told `session_taken` and dropped.
+
+The decision-making lives in two pure modules so it can run on the host:
+`lib/Protocol` is the NDJSON codec and `lib/Link` is the Session/liveness state
+machine. `src/LinkServer.{h,cpp}` is only the WiFi/HTTP/WebSocket transport and
+the Status Board mirror.
+
+To play during development, the Vite dev server needs a Link endpoint: set
+`VITE_LINK_URL=ws://192.168.4.1:81/` (the default on `localhost`).
+
 ## Layout
 
 - `lib/Button/` — the click / long-press / double-click recogniser (pure).
 - `lib/Sounds/` — the buzzer's patterns (pure data).
+- `lib/Protocol/` — the Link NDJSON codec (pure, host-tested).
+- `lib/Link/` — the Session/liveness state machine (pure, host-tested).
 - `src/Buzzer.{h,cpp}` — LEDC playback and the persisted mute.
 - `src/StatusBoard.{h,cpp}` — the panel and its LEDC backlight.
+- `src/LinkServer.{h,cpp}` — SoftAP, HTTP file server, WebSocket, Link glue.
 - `src/main.cpp` — bring-up entry point.
-- `test/` — host tests for `Button` and `Sounds` (`pio test -e native`).
+- `test/` — host tests for `Button`, `Sounds`, `Protocol` and `Link`
+  (`pio test -e native`).
+- `data/` — the built game page (generated; `pio run -t uploadfs`).

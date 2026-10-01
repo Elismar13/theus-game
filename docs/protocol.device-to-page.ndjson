@@ -1,0 +1,14 @@
+{"t":"hello","v":1,"fw":"0.1.0","dev":"AABBCC","caps":[]}
+{"t":"hb","up_ms":1234,"batt_mv":3900,"seq":1}
+{"t":"hb","up_ms":2234,"batt_mv":3880,"rssi":-58,"seq":2}
+{"t":"err","code":"bad_message","msg":"unknown message type"}
+{"t":"err","code":"protocol_version","msg":"protocol version mismatch"}
+{"t":"err","code":"session_taken","msg":"another session took over"}
+{"t":"cal","phase":"started"}
+{"t":"cal","phase":"done"}
+{"t":"cal","phase":"failed","reason":"too noisy"}
+{"t":"evt","e":"JUMP","ts":1000,"seq":3}
+{"t":"evt","e":"CRAWL","ts":1100,"seq":4,"conf":0.92}
+{"t":"evt","e":"UP","ts":1500,"seq":5}
+{"t":"cfg","jump_g":1.6,"crawl_deg":45,"crawl_hold_ms":150,"jump_refractory_ms":250,"seq":6}
+{"t":"raw","ax":0.01,"ay":-0.98,"az":0.12,"gx":0.5,"gy":0.1,"gz":-0.2,"pitch":3.4,"vert":0.05,"ts":2000}

@@ -1,8 +1,10 @@
 import './style.css'
-import { WORLD } from './core/constants'
-import { initial, step } from './core/core'
+import { TUNING, WORLD } from './core/constants'
+import { initial, runState, step } from './core/core'
 import type { GameState } from './core/types'
 import { createKeyboard } from './input/keyboard'
+import { createLink, type Link } from './link/link'
+import { connectLink } from './link/websocket'
 import { draw } from './render/render'
 
 const STEP_MS = 1000 / 60
@@ -20,6 +22,27 @@ const ctx: CanvasRenderingContext2D = context
 ctx.imageSmoothingEnabled = false
 
 const keyboard = createKeyboard()
+
+/**
+ * The Link endpoint. In the field the page is served by the Device, so the page
+ * is already on its host; during development the Vite server is on `localhost`
+ * and the Device is the `THEUS-RUN` access point at 192.168.4.1. Override with
+ * `VITE_LINK_URL` to point anywhere else.
+ */
+function defaultLinkUrl(): string {
+  const hostname = window.location.hostname
+  if (hostname === 'localhost' || hostname === '127.0.0.1') return 'ws://192.168.4.1:81/'
+  return `ws://${hostname}:81/`
+}
+const LINK_URL = import.meta.env.VITE_LINK_URL ?? defaultLinkUrl()
+
+const linkEl = document.getElementById('link')
+
+function showLink(status: 'up' | 'down'): void {
+  if (linkEl === null) return
+  linkEl.dataset.link = status
+  linkEl.textContent = status === 'up' ? 'LINK OK' : 'LINK LOST'
+}
 
 function readHighScore(): number {
   const raw = window.localStorage.getItem(HIGH_SCORE_KEY)
@@ -47,6 +70,28 @@ let state: GameState = initial(seed, readHighScore())
 let accumulator = 0
 let previous = performance.now()
 let diedAt: number | null = null
+
+// The Link runs beside the game: it mirrors Run State to the Device and reports
+// the Link state on the page. Playing from the keyboard works with no Device.
+let link: Link | null = null
+const socket = connectLink(LINK_URL, {
+  onOpen: () => link?.onOpen(),
+  onClose: () => link?.onClose(),
+  onText: (text) => link?.receive(text),
+})
+link = createLink({
+  socket,
+  app: 'theus-web',
+  snapshot: () => ({
+    score: state.score,
+    hi: state.highScore,
+    hearts: state.hearts,
+    maxHearts: TUNING.HEARTS,
+    run: runState(state),
+  }),
+  onStatus: showLink,
+})
+showLink('down')
 
 function restart(): void {
   seed = (seed + 1) >>> 0
@@ -81,6 +126,7 @@ function frame(now: number): void {
     accumulator -= STEP_MS
   }
 
+  link?.tick()
   draw(ctx, state)
   requestAnimationFrame(frame)
 }

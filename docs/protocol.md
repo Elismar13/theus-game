@@ -147,6 +147,10 @@ Version **1**. This is the contract between the Device and the game page. Terms 
 
 `v` is an integer, incremented on any breaking change to the message set. A mismatch is a hard failure: `err {code:"protocol_version"}`, then close.
 
+## Conformance
+
+`protocol.device-to-page.ndjson` and `protocol.page-to-device.ndjson` in this directory hold one canonical frame per line, one file per direction. The web suite (`web/src/protocol.test.ts`) and the firmware host test (`firmware/test/test_protocol`) both read them, so a change to the mirror that the other side would not accept fails a test rather than the field. Update the fixtures alongside this document.
+
 ## Measuring latency
 
 The end-to-end budget is the sum of two measurements, each taken where it can be observed:
