@@ -1,18 +1,22 @@
 #include <Arduino.h>
 
-// put function declarations here:
-int myFunction(int, int);
+#include "StatusBoard.h"
+
+StatusBoard statusBoard;
 
 void setup() {
-  // put your setup code here, to run once:
-  int result = myFunction(2, 3);
+  Serial.begin(115200);
+  Serial.println();
+  Serial.println("theus-game: status board bring-up");
+  Serial.printf("panel %dx%d, backlight levels 0..%d\n", StatusBoard::kWidth,
+                StatusBoard::kHeight, StatusBoard::kBrightnessLevelMax);
+
+  statusBoard.begin();
+  statusBoard.selfTest();
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-}
-
-// put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
+  // The bring-up image stays on screen. The panel is a Status Board, so the
+  // pattern *is* the proof and there is nothing to redraw.
+  delay(1000);
 }
