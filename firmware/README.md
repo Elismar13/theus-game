@@ -22,7 +22,7 @@ On boot the firmware runs `StatusBoard::selfTest()`:
 
 - a white border is drawn on the physical edges of the 80x160 window,
 - red/green/blue/yellow corner markers sit flush in the corners, so a detached
-  corner reveals a window offset and a swapped red/green reveals an RGB panel
+  corner reveals a window offset and a swapped red/blue reveals an RGB panel
   driven as BGR,
 - `THEUS / STATUS BOARD / 80x160` is drawn at a known, centred position,
 - the backlight sweeps through its eight dimmable steps and settles at full.

@@ -4,8 +4,11 @@ namespace {
 
 // Backlight (docs/hardware.md): GPIO25, LEDC PWM for dimming. TFT_eSPI is
 // configured without a TFT_BL, so it leaves this pin to us.
+//
+// Channel 0 is reserved for the buzzer: Arduino-ESP32's tone() defaults to it,
+// and a shared channel would make the backlight follow the buzzer.
 constexpr uint8_t kBacklightPin = 25;
-constexpr uint8_t kBacklightChannel = 0;
+constexpr uint8_t kBacklightChannel = 1;
 constexpr uint32_t kBacklightFrequency = 5000;
 constexpr uint8_t kBacklightResolutionBits = 8;  // duty 0..255
 constexpr uint32_t kBacklightDutyMax = (1u << kBacklightResolutionBits) - 1;
@@ -38,7 +41,7 @@ void StatusBoard::selfTest() {
   panel_.drawRect(0, 0, kWidth, kHeight, TFT_WHITE);
 
   // Corner markers sit flush against the border: if a corner is detached, the
-  // window is offset; if red and green are swapped, the panel is RGB, not BGR.
+  // window is offset; if red and blue are swapped, the panel is RGB, not BGR.
   constexpr int16_t kMarker = 6;
   panel_.fillRect(1, 1, kMarker, kMarker, TFT_RED);
   panel_.fillRect(kWidth - 1 - kMarker, 1, kMarker, kMarker, TFT_GREEN);
