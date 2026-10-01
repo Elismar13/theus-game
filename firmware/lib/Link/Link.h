@@ -28,6 +28,9 @@ class Link {
   using CloseFn = void (*)(void* context, uint8_t clientId);
   // Persists accepted Thresholds (NVS on the Device).
   using SaveFn = void (*)(void* context, const thresholds::Values& values);
+  // Reports one in-order `state` message, already parsed. The Link does not
+  // interpret Run State itself; the mirror decides what it means (#7).
+  using StateFn = void (*)(void* context, const protocol::Object& state);
 
   struct Config {
     const char* fw = "0.0.0";
@@ -46,6 +49,9 @@ class Link {
 
   void begin(const Config& config, SendFn send, CloseFn close, void* context,
              SaveFn save = nullptr);
+
+  // Registers the `state` sink. Optional: a bench Link without a mirror is fine.
+  void setStateHandler(StateFn handler) { stateFn_ = handler; }
 
   // Periodic service: emits the heartbeat and watches for silence.
   void tick(uint32_t nowMs);
@@ -90,6 +96,7 @@ class Link {
   SendFn send_ = nullptr;
   CloseFn close_ = nullptr;
   SaveFn save_ = nullptr;
+  StateFn stateFn_ = nullptr;
   void* context_ = nullptr;
 
   int16_t session_ = -1;

@@ -103,7 +103,8 @@ void setup() {
   // page can connect while the bench proof runs.
   linkServer.begin(statusBoard);
   statusBoard.selfTest();
-  statusBoard.showLink(linkServer.linkUp());
+  // The self-test leaves its own proof on the panel; restore the read-out.
+  linkServer.refreshBoard();
 
   printHelp();
 }

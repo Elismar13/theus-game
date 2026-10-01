@@ -5,6 +5,7 @@
 #include <WiFi.h>
 
 #include "StatusBoard.h"
+#include "Protocol.h"
 
 namespace {
 
@@ -67,13 +68,22 @@ void LinkServer::begin(StatusBoard& board) {
   config.thresholds = settings_.thresholds();
   link_.begin(config, &LinkServer::sendFrame, &LinkServer::closeClient, this,
               &LinkServer::saveThresholds);
+  // The page owns Run State; the Device mirrors it onto the Status Board (#7).
+  link_.setStateHandler(&LinkServer::onState);
 
   socket_.begin();
   socket_.onEvent([this](uint8_t clientId, WStype_t type, uint8_t* payload, size_t length) {
     onSocketEvent(clientId, type, payload, length);
   });
 
-  board_->showLink(link_.up());
+  refreshBoard();
+}
+
+void LinkServer::refreshBoard() {
+  if (board_ == nullptr) {
+    return;
+  }
+  board_->repaint(readout_, link_.up());
 }
 
 void LinkServer::loop() {
@@ -107,6 +117,16 @@ void LinkServer::saveThresholds(void* context, const thresholds::Values& values)
 
 void LinkServer::closeClient(void* context, uint8_t clientId) {
   static_cast<LinkServer*>(context)->socket_.disconnect(clientId);
+}
+
+void LinkServer::onState(void* context, const protocol::Object& state) {
+  auto* self = static_cast<LinkServer*>(context);
+  const uint32_t changed = readout::apply(self->readout_, state);
+  // Only the fields that moved are repainted, so a Score tick leaves the rest
+  // of the panel alone.
+  if (changed != 0 && self->board_ != nullptr) {
+    self->board_->render(self->readout_, changed);
+  }
 }
 
 void LinkServer::onSocketEvent(uint8_t clientId, WStype_t type, uint8_t* payload, size_t length) {

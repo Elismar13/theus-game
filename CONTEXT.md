@@ -45,7 +45,7 @@ One attempt at the game, beginning when play starts and ending when the last Hea
 _Avoid_: round, match
 
 **Run State**:
-Where a Run currently is: waiting to start, running, jumping, crawling, invulnerable, or dead.
+Where a Run currently is: waiting to start, running, jumping, crawling, invulnerable, dead, or paused.
 _Avoid_: game state, status, mode
 
 **Heart**:
@@ -69,6 +69,10 @@ _Avoid_: controller, remote, wearable
 **Status Board**:
 The panel on the Device that displays the state of a Run. It is read between Runs and by onlookers; the player cannot see it mid-Run.
 _Avoid_: HUD, display, screen
+
+**Read-out**:
+The Device's mirrored view of the current Run — Score, High Score, Hearts and Run State — assembled from the page's `state` messages and rendered on the Status Board.
+_Avoid_: display state, HUD state, mirror
 
 **Link**:
 The wireless connection between the Device and the game page.

@@ -144,6 +144,9 @@ bool Link::onFrame(uint8_t clientId, const char* frame, uint32_t nowMs) {
 
   if (strcmp(type, "state") == 0) {
     // Run State and Score are the page's to own; the Device mirrors them (#7).
+    if (stateFn_ != nullptr) {
+      stateFn_(context_, object);
+    }
     return true;
   }
 

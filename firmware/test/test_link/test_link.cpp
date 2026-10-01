@@ -18,6 +18,8 @@ struct Transport {
   std::vector<Sent> sent;
   std::vector<uint8_t> closed;
   std::vector<thresholds::Values> saved;
+  /** The Score of each `state` frame the mirror saw, in arrival order. */
+  std::vector<long> stateScores;
 
   static bool onSend(void* context, uint8_t client, const char* frame) {
     static_cast<Transport*>(context)->sent.push_back({client, frame});
@@ -30,6 +32,12 @@ struct Transport {
 
   static void onSave(void* context, const thresholds::Values& values) {
     static_cast<Transport*>(context)->saved.push_back(values);
+  }
+
+  static void onState(void* context, const protocol::Object& state) {
+    long score = -1;
+    protocol::getInt(state, "score", score);
+    static_cast<Transport*>(context)->stateScores.push_back(score);
   }
 
   void begin() {
@@ -374,9 +382,33 @@ void test_missing_cfg_set_is_rejected(void) {
   TEST_ASSERT_EQUAL_STRING("cfg_rejected", codeOf(transport.sent[0].frame).c_str());
 }
 
+void test_state_reaches_the_mirror_and_stale_seq_is_dropped(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.setStateHandler(Transport::onState);
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+
+  TEST_ASSERT_TRUE(
+      transport.link.onFrame(1, "{\"t\":\"state\",\"score\":120,\"seq\":1}", 10));
+  TEST_ASSERT_EQUAL_UINT32(1, transport.stateScores.size());
+  TEST_ASSERT_EQUAL_INT(120, transport.stateScores[0]);
+
+  // A stale frame is dropped before the mirror ever sees it.
+  TEST_ASSERT_FALSE(
+      transport.link.onFrame(1, "{\"t\":\"state\",\"score\":9,\"seq\":1}", 11));
+  TEST_ASSERT_EQUAL_UINT32(1, transport.stateScores.size());
+
+  TEST_ASSERT_TRUE(
+      transport.link.onFrame(1, "{\"t\":\"state\",\"score\":130,\"seq\":2}", 12));
+  TEST_ASSERT_EQUAL_UINT32(2, transport.stateScores.size());
+  TEST_ASSERT_EQUAL_INT(130, transport.stateScores[1]);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_hello_opens_the_session_and_carries_the_thresholds);
+  RUN_TEST(test_state_reaches_the_mirror_and_stale_seq_is_dropped);
   RUN_TEST(test_link_comes_up_on_the_peer_hello);
   RUN_TEST(test_link_goes_down_after_three_missed_heartbeats);
   RUN_TEST(test_heartbeat_is_sent_every_second_with_a_rising_seq);

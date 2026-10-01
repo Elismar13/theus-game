@@ -5,6 +5,7 @@
 #include <WebSocketsServer.h>
 
 #include "Link.h"
+#include "Readout.h"
 #include "Settings.h"
 
 class StatusBoard;
@@ -28,10 +29,15 @@ class LinkServer {
 
   bool linkUp() const { return link_.up(); }
 
+  // Repaints the whole Status Board from the current mirror. Used after the
+  // panel self-test, which leaves its own proof on the screen.
+  void refreshBoard();
+
  private:
   static bool sendFrame(void* context, uint8_t clientId, const char* frame);
   static void closeClient(void* context, uint8_t clientId);
   static void saveThresholds(void* context, const thresholds::Values& values);
+  static void onState(void* context, const protocol::Object& state);
 
   void onSocketEvent(uint8_t clientId, WStype_t type, uint8_t* payload, size_t length);
   bool serveFile(const String& path);
@@ -41,6 +47,7 @@ class LinkServer {
   Link link_;
   Settings settings_;
   StatusBoard* board_ = nullptr;
+  readout::State readout_;
   bool shownLinkUp_ = false;
   char deviceId_[16] = {};
 };
