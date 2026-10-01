@@ -151,3 +151,39 @@ describe('Ordering', () => {
     expect(messages).toHaveLength(1)
   })
 })
+
+describe('Tuning', () => {
+  it('sends a Threshold patch and a mode switch', () => {
+    const { link, sent } = harness()
+    link.onOpen()
+    sent.length = 0
+
+    link.sendCfg({ jump_g: 1.7, crawl_hold_ms: 200 })
+    link.sendMode('raw')
+
+    expect(sentMessage(sent[0])).toEqual({
+      t: 'cfg',
+      set: { jump_g: 1.7, crawl_hold_ms: 200 },
+    })
+    expect(sentMessage(sent[1])).toEqual({ t: 'mode', m: 'raw' })
+  })
+
+  it('drops tuning frames while the socket is closed', () => {
+    const { link, sent } = harness()
+    link.sendCfg({ jump_g: 1.7 })
+    link.sendMode('raw')
+    expect(sent).toHaveLength(0)
+  })
+
+  it('forwards cfg and raw from the Device to onMessage', () => {
+    const { link, messages } = harness()
+    link.onOpen()
+    link.receive(
+      '{"t":"cfg","jump_g":1.6,"crawl_deg":45,"crawl_hold_ms":150,"jump_refractory_ms":250,"seq":1}',
+    )
+    link.receive(
+      '{"t":"raw","ax":0,"ay":1,"az":0,"gx":0,"gy":0,"gz":0,"pitch":0,"vert":1,"ts":10}',
+    )
+    expect(messages.map((message) => message.t)).toEqual(['cfg', 'raw'])
+  })
+})

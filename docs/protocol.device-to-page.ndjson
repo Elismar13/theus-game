@@ -1,4 +1,4 @@
-{"t":"hello","v":1,"fw":"0.1.0","dev":"AABBCC","caps":[]}
+{"t":"hello","v":1,"fw":"0.1.0","dev":"AABBCC","caps":["cfg","raw"]}
 {"t":"hb","up_ms":1234,"batt_mv":3900,"seq":1}
 {"t":"hb","up_ms":2234,"batt_mv":3880,"rssi":-58,"seq":2}
 {"t":"err","code":"bad_message","msg":"unknown message type"}

@@ -108,7 +108,7 @@ void test_rejects_malformed_objects(void) {
 
 void test_writer_matches_the_golden_frames(void) {
   const std::vector<std::string> lines = fixtureLines("protocol.device-to-page.ndjson");
-  TEST_ASSERT_TRUE_MESSAGE(lines.size() >= 2, "device-to-page fixture is missing");
+  TEST_ASSERT_TRUE_MESSAGE(lines.size() >= 14, "device-to-page fixture is missing");
 
   char hello[192];
   protocol::Writer helloWriter(hello, sizeof(hello));
@@ -122,7 +122,7 @@ void test_writer_matches_the_golden_frames(void) {
   helloWriter.key("dev");
   helloWriter.string("AABBCC");
   helloWriter.key("caps");
-  helloWriter.raw("[]");
+  helloWriter.raw("[\"cfg\",\"raw\"]");
   helloWriter.objectEnd();
   TEST_ASSERT_TRUE(helloWriter.ok());
   TEST_ASSERT_EQUAL_STRING(lines[0].c_str(), hello);
@@ -141,6 +141,68 @@ void test_writer_matches_the_golden_frames(void) {
   hbWriter.objectEnd();
   TEST_ASSERT_TRUE(hbWriter.ok());
   TEST_ASSERT_EQUAL_STRING(lines[1].c_str(), heartbeat);
+
+  char cfg[160];
+  protocol::Writer cfgWriter(cfg, sizeof(cfg));
+  cfgWriter.objectStart();
+  cfgWriter.key("t");
+  cfgWriter.string("cfg");
+  cfgWriter.key("jump_g");
+  cfgWriter.number(1.6);
+  cfgWriter.key("crawl_deg");
+  cfgWriter.number(45.0);
+  cfgWriter.key("crawl_hold_ms");
+  cfgWriter.number(150L);
+  cfgWriter.key("jump_refractory_ms");
+  cfgWriter.number(250L);
+  cfgWriter.key("seq");
+  cfgWriter.number(6L);
+  cfgWriter.objectEnd();
+  TEST_ASSERT_TRUE(cfgWriter.ok());
+  TEST_ASSERT_EQUAL_STRING(lines[12].c_str(), cfg);
+
+  char raw[192];
+  protocol::Writer rawWriter(raw, sizeof(raw));
+  rawWriter.objectStart();
+  rawWriter.key("t");
+  rawWriter.string("raw");
+  rawWriter.key("ax");
+  rawWriter.number(0.01);
+  rawWriter.key("ay");
+  rawWriter.number(-0.98);
+  rawWriter.key("az");
+  rawWriter.number(0.12);
+  rawWriter.key("gx");
+  rawWriter.number(0.5);
+  rawWriter.key("gy");
+  rawWriter.number(0.1);
+  rawWriter.key("gz");
+  rawWriter.number(-0.2);
+  rawWriter.key("pitch");
+  rawWriter.number(3.4);
+  rawWriter.key("vert");
+  rawWriter.number(0.05);
+  rawWriter.key("ts");
+  rawWriter.number(2000L);
+  rawWriter.objectEnd();
+  TEST_ASSERT_TRUE(rawWriter.ok());
+  TEST_ASSERT_EQUAL_STRING(lines[13].c_str(), raw);
+}
+
+void test_reads_a_cfg_patch_verbatim(void) {
+  protocol::Object object;
+  TEST_ASSERT_TRUE(
+      protocol::parse("{\"t\":\"cfg\",\"set\":{\"jump_g\":1.7,\"crawl_hold_ms\":200}}", object));
+  TEST_ASSERT_EQUAL_STRING("{\"jump_g\":1.7,\"crawl_hold_ms\":200}", object.find("set"));
+
+  protocol::Object patch;
+  TEST_ASSERT_TRUE(protocol::parse(object.find("set"), patch));
+  double jumpG = 0;
+  TEST_ASSERT_TRUE(protocol::getNumber(patch, "jump_g", jumpG));
+  TEST_ASSERT_FLOAT_WITHIN(0.001, 1.7, jumpG);
+  long holdMs = 0;
+  TEST_ASSERT_TRUE(protocol::getInt(patch, "crawl_hold_ms", holdMs));
+  TEST_ASSERT_EQUAL_INT(200, holdMs);
 }
 
 void test_writer_reports_overflow(void) {
@@ -159,6 +221,7 @@ int main() {
   RUN_TEST(test_keeps_nested_values_verbatim);
   RUN_TEST(test_rejects_malformed_objects);
   RUN_TEST(test_writer_matches_the_golden_frames);
+  RUN_TEST(test_reads_a_cfg_patch_verbatim);
   RUN_TEST(test_writer_reports_overflow);
   return UNITY_END();
 }

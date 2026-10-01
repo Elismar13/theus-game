@@ -4,6 +4,7 @@ import {
   decode,
   encode,
   pageCal,
+  pageCfg,
   pageHello,
   pageMode,
   pageState,
@@ -44,6 +45,8 @@ function rebuild(line: string): string {
       )
     case 'cal':
       return encode(pageCal())
+    case 'cfg':
+      return encode(pageCfg(raw.set as Record<string, number>))
     case 'mode':
       return encode(pageMode(raw.m as 'play' | 'raw'))
     default:
@@ -67,7 +70,38 @@ describe('device-to-page codec', () => {
       v: PROTOCOL_VERSION,
       fw: '0.1.0',
       dev: 'AABBCC',
-      caps: [],
+      caps: ['cfg', 'raw'],
+    })
+  })
+
+  it('reads Thresholds and the raw debug stream', () => {
+    expect(
+      decode(
+        '{"t":"cfg","jump_g":1.6,"crawl_deg":45,"crawl_hold_ms":150,"jump_refractory_ms":250,"seq":6}',
+      ),
+    ).toEqual({
+      t: 'cfg',
+      jump_g: 1.6,
+      crawl_deg: 45,
+      crawl_hold_ms: 150,
+      jump_refractory_ms: 250,
+      seq: 6,
+    })
+    expect(
+      decode(
+        '{"t":"raw","ax":0.01,"ay":-0.98,"az":0.12,"gx":0.5,"gy":0.1,"gz":-0.2,"pitch":3.4,"vert":0.05,"ts":2000}',
+      ),
+    ).toEqual({
+      t: 'raw',
+      ax: 0.01,
+      ay: -0.98,
+      az: 0.12,
+      gx: 0.5,
+      gy: 0.1,
+      gz: -0.2,
+      pitch: 3.4,
+      vert: 0.05,
+      ts: 2000,
     })
   })
 

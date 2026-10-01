@@ -1,8 +1,10 @@
 #include <Arduino.h>
 
+#include "Bmi160.h"
 #include "Button.h"
 #include "Buzzer.h"
 #include "LinkServer.h"
+#include "Signals.h"
 #include "StatusBoard.h"
 
 namespace {
@@ -10,10 +12,17 @@ namespace {
 // docs/hardware.md: button on GPIO32 to GND, internal pull-up.
 constexpr uint8_t kButtonPin = 32;
 
+// The Sensor Module runs at 100 Hz, so sample every 10 ms. The loop services
+// the Link between samples, so the read never blocks it.
+constexpr uint32_t kSampleIntervalMs = 10;
+
 StatusBoard statusBoard;
 Button button;
 Buzzer buzzer;
+Bmi160 sensor;
 LinkServer linkServer;
+bool sensorReady = false;
+uint32_t lastSampleMs = 0;
 
 // The button's job in the finished Device is Recalibration (long press) and
 // mute (double-click); its other bindings arrive with the integration ticket.
@@ -60,6 +69,9 @@ void handleSerialCommand() {
       buzzer.toggleMute();
       Serial.printf("mute %s\n", buzzer.muted() ? "on" : "off");
       break;
+    case 'x':
+      linkServer.toggleRawMode();
+      break;
     default:
       break;
   }
@@ -68,7 +80,7 @@ void handleSerialCommand() {
 void printHelp() {
   Serial.println(
       "commands: j jump  h heart loss  g game over  r recalibrate  b low "
-      "battery  m mute");
+      "battery  m mute  x raw mode");
   Serial.printf("mute is %s\n", buzzer.muted() ? "on" : "off");
 }
 
@@ -82,6 +94,10 @@ void setup() {
   statusBoard.begin();
   buzzer.begin();
   pinMode(kButtonPin, INPUT_PULLUP);
+  sensorReady = sensor.begin();
+  if (!sensorReady) {
+    Serial.println("BMI160 not found on I2C; no raw stream");
+  }
 
   // The access point and the Link come up before the panel self-test, so the
   // page can connect while the bench proof runs.
@@ -94,6 +110,14 @@ void setup() {
 
 void loop() {
   linkServer.loop();
+
+  const uint32_t now = millis();
+  if (sensorReady && now - lastSampleMs >= kSampleIntervalMs) {
+    lastSampleMs = now;
+    signals::Sample sample;
+    sensor.read(sample);
+    linkServer.onSample(sample, now);
+  }
 
   const bool pressed = digitalRead(kButtonPin) == LOW;
   handleEvent(button.update(pressed, millis()));

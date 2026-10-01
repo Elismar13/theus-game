@@ -2,6 +2,7 @@ import './style.css'
 import { TUNING, WORLD } from './core/constants'
 import { initial, runState, step } from './core/core'
 import type { GameState } from './core/types'
+import { createDevPanel } from './devpanel/panel'
 import { createKeyboard } from './input/keyboard'
 import { createLink, type Link } from './link/link'
 import { connectLink } from './link/websocket'
@@ -43,6 +44,17 @@ function showLink(status: 'up' | 'down'): void {
   linkEl.dataset.link = status
   linkEl.textContent = status === 'up' ? 'LINK OK' : 'LINK LOST'
 }
+
+// The Dev Panel is optional: the game must run even if its markup is absent.
+const devEl = document.getElementById('dev')
+const devPanel =
+  devEl === null
+    ? null
+    : createDevPanel({
+        root: devEl,
+        onCfg: (set) => link?.sendCfg(set),
+        onMode: (mode) => link?.sendMode(mode),
+      })
 
 function readHighScore(): number {
   const raw = window.localStorage.getItem(HIGH_SCORE_KEY)
@@ -90,6 +102,7 @@ link = createLink({
     run: runState(state),
   }),
   onStatus: showLink,
+  onMessage: (message) => devPanel?.handle(message),
 })
 showLink('down')
 

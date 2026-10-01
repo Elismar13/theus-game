@@ -5,13 +5,14 @@
 #include <WebSocketsServer.h>
 
 #include "Link.h"
+#include "Settings.h"
 
 class StatusBoard;
 
 // Binds the Link to the hardware: a WiFi SoftAP that also serves the game page
 // from LittleFS over HTTP (port 80), plus the WebSocket server (port 81). Every
-// protocol decision lives in `Link`; this class is only transport and the
-// Status Board mirror, which keeps those decisions host-testable.
+// protocol decision lives in `Link`; this class is only transport, persistence
+// and the Status Board mirror, which keeps those decisions host-testable.
 class LinkServer {
  public:
   static constexpr uint16_t kHttpPort = 80;
@@ -20,11 +21,17 @@ class LinkServer {
   void begin(StatusBoard& board);
   void loop();
 
+  // One Sensor Module reading, forwarded to the Link's raw stream.
+  void onSample(const signals::Sample& sample, uint32_t nowMs);
+  // Bench convenience: raw mode is normally driven by the page's `mode`.
+  void toggleRawMode();
+
   bool linkUp() const { return link_.up(); }
 
  private:
   static bool sendFrame(void* context, uint8_t clientId, const char* frame);
   static void closeClient(void* context, uint8_t clientId);
+  static void saveThresholds(void* context, const thresholds::Values& values);
 
   void onSocketEvent(uint8_t clientId, WStype_t type, uint8_t* payload, size_t length);
   bool serveFile(const String& path);
@@ -32,6 +39,7 @@ class LinkServer {
   WebServer http_{kHttpPort};
   WebSocketsServer socket_{kSocketPort};
   Link link_;
+  Settings settings_;
   StatusBoard* board_ = nullptr;
   bool shownLinkUp_ = false;
   char deviceId_[16] = {};

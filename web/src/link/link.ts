@@ -1,10 +1,13 @@
 import {
   decode,
   encode,
+  pageCfg,
   pageHello,
+  pageMode,
   pageState,
   PROTOCOL_VERSION,
   type DeviceMessage,
+  type Thresholds,
   type WireRunState,
 } from '../protocol'
 
@@ -56,6 +59,10 @@ export interface Link {
   receive(text: string): void
   /** Call often; sends `state` and watches for missed heartbeats. */
   tick(): void
+  /** Ask the Device to apply a subset of Thresholds. */
+  sendCfg(set: Partial<Thresholds>): void
+  /** Switch the Device between play and raw debug mode. */
+  sendMode(mode: 'play' | 'raw'): void
   readonly status: LinkStatus
 }
 
@@ -146,6 +153,14 @@ export function createLink(options: LinkOptions): Link {
       const nowMs = now()
       if (peerHelloSeen && nowMs - lastInboundMs >= timeoutMs) setStatus('down')
       if (nowMs - lastStateMs >= heartbeatMs) sendState()
+    },
+
+    sendCfg(set: Partial<Thresholds>): void {
+      send(encode(pageCfg(set)))
+    },
+
+    sendMode(mode: 'play' | 'raw'): void {
+      send(encode(pageMode(mode)))
     },
 
     get status(): LinkStatus {

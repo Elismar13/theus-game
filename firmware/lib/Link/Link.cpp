@@ -4,17 +4,30 @@
 
 #include "Protocol.h"
 
-void Link::begin(const Config& config, SendFn send, CloseFn close, void* context) {
+namespace {
+
+// The Sensor Module is read at 100 Hz (#8), and the raw debug stream is half
+// that — about 50 Hz — per `docs/protocol.md`.
+constexpr uint32_t kRawIntervalMs = 20;
+
+}  // namespace
+
+void Link::begin(const Config& config, SendFn send, CloseFn close, void* context,
+                 SaveFn save) {
   config_ = config;
+  thresholds_ = config.thresholds;
   send_ = send;
   close_ = close;
+  save_ = save;
   context_ = context;
 
   session_ = -1;
   up_ = false;
   peerHelloSeen_ = false;
+  rawMode_ = false;
   lastInboundMs_ = 0;
   lastHeartbeatMs_ = 0;
+  lastRawMs_ = 0;
   outboundSeq_ = 0;
   inboundSeq_ = 0;
 }
@@ -33,12 +46,16 @@ void Link::onClientConnected(uint8_t clientId, uint32_t nowMs) {
   session_ = clientId;
   up_ = false;
   peerHelloSeen_ = false;
+  rawMode_ = false;
   outboundSeq_ = 0;
   inboundSeq_ = 0;
   lastInboundMs_ = nowMs;
   lastHeartbeatMs_ = nowMs;
+  lastRawMs_ = 0;
 
   sendHello(clientId);
+  // The protocol asks the Device to send its live Thresholds on connect.
+  sendCfg(clientId);
 }
 
 void Link::onClientDisconnected(uint8_t clientId) {
@@ -66,6 +83,12 @@ void Link::tick(uint32_t nowMs) {
   }
 }
 
+void Link::setRawMode(bool on) {
+  rawMode_ = on;
+  // Emit the next sample promptly rather than waiting out the interval.
+  lastRawMs_ = 0;
+}
+
 bool Link::onFrame(uint8_t clientId, const char* frame, uint32_t nowMs) {
   if (session_ < 0 || clientId != static_cast<uint8_t>(session_)) {
     return false;
@@ -86,7 +109,8 @@ bool Link::onFrame(uint8_t clientId, const char* frame, uint32_t nowMs) {
   lastInboundMs_ = nowMs;
 
   // `seq` is per sender and starts at 1; anything at or below the last accepted
-  // value is a stale frame from before a reconnect.
+  // value is a stale frame from before a reconnect. Only messages that carry a
+  // `seq` are filtered; `hello`, `cal`, `cfg` and `mode` do not.
   long seq = 0;
   if (protocol::getInt(object, "seq", seq)) {
     if (seq <= 0 || static_cast<uint32_t>(seq) <= inboundSeq_) {
@@ -118,15 +142,139 @@ bool Link::onFrame(uint8_t clientId, const char* frame, uint32_t nowMs) {
     up_ = true;
   }
 
-  // Acknowledge the messages this ticket knows; later tickets read their
-  // payloads. `evt` is Device-to-page, so it is not accepted here.
-  if (strcmp(type, "state") == 0 || strcmp(type, "cal") == 0 ||
-      strcmp(type, "cfg") == 0 || strcmp(type, "mode") == 0) {
+  if (strcmp(type, "state") == 0) {
+    // Run State and Score are the page's to own; the Device mirrors them (#7).
+    return true;
+  }
+
+  if (strcmp(type, "cal") == 0) {
+    // Recalibration arrives with #12.
+    return true;
+  }
+
+  if (strcmp(type, "mode") == 0) {
+    char mode[8];
+    if (!protocol::getString(object, "m", mode, sizeof(mode))) {
+      sendError(clientId, "bad_message", "missing mode");
+      return false;
+    }
+    if (strcmp(mode, "raw") == 0) {
+      setRawMode(true);
+      return true;
+    }
+    if (strcmp(mode, "play") == 0) {
+      setRawMode(false);
+      return true;
+    }
+    sendError(clientId, "bad_message", "unknown mode");
+    return false;
+  }
+
+  if (strcmp(type, "cfg") == 0) {
+    const char* set = object.find("set");
+    protocol::Object patch;
+    thresholds::Values updated;
+    if (set == nullptr || !protocol::parse(set, patch) || !applyPatch(patch, updated)) {
+      sendError(clientId, "cfg_rejected", "invalid thresholds");
+      return false;
+    }
+    thresholds_ = updated;
+    if (save_ != nullptr) {
+      save_(context_, thresholds_);
+    }
+    // The fresh `cfg` is the acknowledgement.
+    sendCfg(clientId);
     return true;
   }
 
   sendError(clientId, "bad_message", "unknown message type");
   return false;
+}
+
+bool Link::applyPatch(const protocol::Object& patch, thresholds::Values& out) const {
+  thresholds::Values candidate = thresholds_;
+  bool any = false;
+  double number = 0;
+  long integer = 0;
+
+  // Every key must be a known Threshold. An unrecognised name is a typo, not a
+  // no-op: accepting it would drop the value the page meant to change.
+  for (size_t i = 0; i < patch.count; ++i) {
+    const char* key = patch.fields[i].key;
+    if (strcmp(key, "jump_g") == 0) {
+      if (!protocol::getNumber(patch, key, number) ||
+          !thresholds::validJumpG(static_cast<float>(number))) {
+        return false;
+      }
+      candidate.jump_g = static_cast<float>(number);
+    } else if (strcmp(key, "crawl_deg") == 0) {
+      if (!protocol::getNumber(patch, key, number) ||
+          !thresholds::validCrawlDeg(static_cast<float>(number))) {
+        return false;
+      }
+      candidate.crawl_deg = static_cast<float>(number);
+    } else if (strcmp(key, "crawl_hold_ms") == 0) {
+      if (!protocol::getInt(patch, key, integer) ||
+          !thresholds::validCrawlHoldMs(static_cast<int>(integer))) {
+        return false;
+      }
+      candidate.crawl_hold_ms = static_cast<int>(integer);
+    } else if (strcmp(key, "jump_refractory_ms") == 0) {
+      if (!protocol::getInt(patch, key, integer) ||
+          !thresholds::validJumpRefractoryMs(static_cast<int>(integer))) {
+        return false;
+      }
+      candidate.jump_refractory_ms = static_cast<int>(integer);
+    } else {
+      return false;
+    }
+    any = true;
+  }
+
+  if (!any) {
+    return false;
+  }
+  out = candidate;
+  return true;
+}
+
+void Link::onSample(const signals::Sample& sample, uint32_t nowMs) {
+  if (!up_ || !rawMode_ || session_ < 0 || send_ == nullptr) {
+    return;
+  }
+  if (lastRawMs_ != 0 && nowMs - lastRawMs_ < kRawIntervalMs) {
+    return;
+  }
+  lastRawMs_ = nowMs;
+
+  const signals::Derived derived = signals::derive(sample);
+  char buffer[224];
+  protocol::Writer writer(buffer, sizeof(buffer));
+  writer.objectStart();
+  writer.key("t");
+  writer.string("raw");
+  writer.key("ax");
+  writer.number(static_cast<double>(sample.ax));
+  writer.key("ay");
+  writer.number(static_cast<double>(sample.ay));
+  writer.key("az");
+  writer.number(static_cast<double>(sample.az));
+  writer.key("gx");
+  writer.number(static_cast<double>(sample.gx));
+  writer.key("gy");
+  writer.number(static_cast<double>(sample.gy));
+  writer.key("gz");
+  writer.number(static_cast<double>(sample.gz));
+  writer.key("pitch");
+  writer.number(static_cast<double>(derived.pitch));
+  writer.key("vert");
+  writer.number(static_cast<double>(derived.vert));
+  writer.key("ts");
+  writer.number(static_cast<long>(nowMs));
+  writer.objectEnd();
+  if (writer.ok()) {
+    send_(context_, static_cast<uint8_t>(session_), buffer);
+  }
 }
 
 void Link::sendHello(uint8_t clientId) {
@@ -172,6 +320,31 @@ void Link::sendHeartbeat(uint32_t nowMs) {
   writer.objectEnd();
   if (writer.ok()) {
     send_(context_, static_cast<uint8_t>(session_), buffer);
+  }
+}
+
+void Link::sendCfg(uint8_t clientId) {
+  if (send_ == nullptr) {
+    return;
+  }
+  char buffer[160];
+  protocol::Writer writer(buffer, sizeof(buffer));
+  writer.objectStart();
+  writer.key("t");
+  writer.string("cfg");
+  writer.key("jump_g");
+  writer.number(static_cast<double>(thresholds_.jump_g));
+  writer.key("crawl_deg");
+  writer.number(static_cast<double>(thresholds_.crawl_deg));
+  writer.key("crawl_hold_ms");
+  writer.number(static_cast<long>(thresholds_.crawl_hold_ms));
+  writer.key("jump_refractory_ms");
+  writer.number(static_cast<long>(thresholds_.jump_refractory_ms));
+  writer.key("seq");
+  writer.number(static_cast<long>(++outboundSeq_));
+  writer.objectEnd();
+  if (writer.ok()) {
+    send_(context_, clientId, buffer);
   }
 }
 

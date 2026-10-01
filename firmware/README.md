@@ -65,6 +65,27 @@ Recalibration, low battery) so each can be checked by ear, and `m` toggles mute.
 The backlight and buzzer share the LEDC peripheral: the backlight is on channel
 1 and the buzzer on channel 0, the channel Arduino-ESP32's `tone()` claims.
 
+## Sensor Module bring-up
+
+The BMI160 sits on I2C (SDA 21, SCL 22, address 0x68; `docs/hardware.md`).
+`src/Bmi160.{h,cpp}` wraps `mncc8337/BMI160-Arduino-Extended`, configured for
+100 Hz acceleration and angular rate at +/-4 g and +/-500 deg/s, and scales the
+raw counts into g and deg/s. The main loop reads it every 10 ms and hands the reading
+to the Link; nothing in the read path blocks the Link.
+
+`lib/Signals` is pure: it derives the two features the Edge Classifier will lean
+on — `vert`, the torso-up acceleration in g, and `pitch`, the forward torso angle
+from `atan2(az, ay)` in degrees. `lib/Thresholds` holds the four tunable values
+and their validation bounds. Both run in the host tests.
+
+Raw debug mode is driven from the page (`mode {m:"raw"}`), which plots the live
+signal in the Dev Panel at about 50 Hz; the serial command `x` toggles the same
+mode for a bench check. Thresholds are edited in the Dev Panel, validated on the
+Device, persisted to NVS (`theus` / `jump_g`, `crawl_deg`, `crawl_hold_ms`,
+`jump_refractory_ms`) by `src/Settings.{h,cpp}`, and echoed back as a fresh
+`cfg`. An out-of-range value is refused with `err {code:"cfg_rejected"}` and
+nothing changes.
+
 ## The Link
 
 The Device is a WiFi SoftAP named `THEUS-RUN` at `192.168.4.1` (mDNS
@@ -72,16 +93,18 @@ The Device is a WiFi SoftAP named `THEUS-RUN` at `192.168.4.1` (mDNS
 and runs the Link — a WebSocket carrying NDJSON — on port 81. The contract is
 [`../docs/protocol.md`](../docs/protocol.md).
 
-On boot, the Device sends `hello`, then `hb` every second. The game page answers
-with `hello` and re-sends `state` at least every second; three consecutive missed
-heartbeats (about 3 s) is Link Down. `LINK OK` / `LINK LOST` is shown on both the
-page and the Status Board. Exactly one Session exists: a second page takes over
-and the first is told `session_taken` and dropped.
+On connect the Device sends `hello` (advertising `caps:["cfg","raw"]`) and its
+live `cfg`, then `hb` every second. The game page answers with `hello` and
+re-sends `state` at least every second; three consecutive missed heartbeats
+(about 3 s) is Link Down. `LINK OK` / `LINK LOST` is shown on both the page and
+the Status Board. Exactly one Session exists: a second page takes over and the
+first is told `session_taken` and dropped.
 
-The decision-making lives in two pure modules so it can run on the host:
+The decision-making lives in pure modules so it can run on the host:
 `lib/Protocol` is the NDJSON codec and `lib/Link` is the Session/liveness state
-machine. `src/LinkServer.{h,cpp}` is only the WiFi/HTTP/WebSocket transport and
-the Status Board mirror.
+machine, which also validates Threshold patches and gates the raw stream.
+`src/LinkServer.{h,cpp}` is only the WiFi/HTTP/WebSocket transport, NVS
+persistence and the Status Board mirror.
 
 To play during development, the Vite dev server needs a Link endpoint: set
 `VITE_LINK_URL=ws://192.168.4.1:81/` (the default on `localhost`).
@@ -90,12 +113,17 @@ To play during development, the Vite dev server needs a Link endpoint: set
 
 - `lib/Button/` — the click / long-press / double-click recogniser (pure).
 - `lib/Sounds/` — the buzzer's patterns (pure data).
+- `lib/Signals/` — pitch / vertical derivation from a Sensor Module reading (pure).
+- `lib/Thresholds/` — the tunable values, defaults and validation bounds (pure).
 - `lib/Protocol/` — the Link NDJSON codec (pure, host-tested).
-- `lib/Link/` — the Session/liveness state machine (pure, host-tested).
+- `lib/Link/` — the Session/liveness state machine, Threshold validation and raw
+  gating (pure, host-tested).
+- `src/Bmi160.{h,cpp}` — the BMI160 over I2C, scaled to g and deg/s.
+- `src/Settings.{h,cpp}` — Thresholds persisted in NVS.
 - `src/Buzzer.{h,cpp}` — LEDC playback and the persisted mute.
 - `src/StatusBoard.{h,cpp}` — the panel and its LEDC backlight.
 - `src/LinkServer.{h,cpp}` — SoftAP, HTTP file server, WebSocket, Link glue.
-- `src/main.cpp` — bring-up entry point.
-- `test/` — host tests for `Button`, `Sounds`, `Protocol` and `Link`
-  (`pio test -e native`).
+- `src/main.cpp` — bring-up entry point and the 100 Hz sampling loop.
+- `test/` — host tests for `Button`, `Sounds`, `Signals`, `Thresholds`,
+  `Protocol` and `Link` (`pio test -e native`).
 - `data/` — the built game page (generated; `pio run -t uploadfs`).

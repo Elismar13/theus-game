@@ -31,6 +31,7 @@ const char* contentTypeFor(const String& path) {
 
 void LinkServer::begin(StatusBoard& board) {
   board_ = &board;
+  settings_.begin();
 
   if (!LittleFS.begin(true)) {
     Serial.println("LittleFS mount failed");
@@ -62,7 +63,10 @@ void LinkServer::begin(StatusBoard& board) {
   Link::Config config;
   config.fw = kFirmwareVersion;
   config.dev = deviceId_;
-  link_.begin(config, &LinkServer::sendFrame, &LinkServer::closeClient, this);
+  config.caps = "\"cfg\",\"raw\"";
+  config.thresholds = settings_.thresholds();
+  link_.begin(config, &LinkServer::sendFrame, &LinkServer::closeClient, this,
+              &LinkServer::saveThresholds);
 
   socket_.begin();
   socket_.onEvent([this](uint8_t clientId, WStype_t type, uint8_t* payload, size_t length) {
@@ -86,6 +90,19 @@ void LinkServer::loop() {
 bool LinkServer::sendFrame(void* context, uint8_t clientId, const char* frame) {
   auto* self = static_cast<LinkServer*>(context);
   return self->socket_.sendTXT(clientId, frame);
+}
+
+void LinkServer::onSample(const signals::Sample& sample, uint32_t nowMs) {
+  link_.onSample(sample, nowMs);
+}
+
+void LinkServer::toggleRawMode() {
+  link_.setRawMode(!link_.rawMode());
+  Serial.printf("raw mode %s\n", link_.rawMode() ? "on" : "off");
+}
+
+void LinkServer::saveThresholds(void* context, const thresholds::Values& values) {
+  static_cast<LinkServer*>(context)->settings_.save(values);
 }
 
 void LinkServer::closeClient(void* context, uint8_t clientId) {

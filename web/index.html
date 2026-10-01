@@ -10,6 +10,29 @@
     <main id="stage">
       <canvas id="game" width="320" height="180" aria-label="Theus Game"></canvas>
       <p id="link" class="badge" data-link="down">LINK LOST</p>
+
+      <button id="dev-toggle" type="button" class="dev-toggle" aria-controls="dev" aria-expanded="false">
+        DEV PANEL
+      </button>
+
+      <section id="dev" class="dev" hidden>
+        <div class="dev-head">
+          <h2>Sensor</h2>
+          <label class="dev-mode"><input id="dev-raw" type="checkbox" /> raw mode</label>
+        </div>
+
+        <canvas id="dev-plot" width="320" height="120" aria-label="Live pitch and vertical acceleration"></canvas>
+        <pre id="dev-readout" class="dev-readout">no samples</pre>
+
+        <form id="dev-cfg" class="dev-cfg">
+          <label>jump_g <input name="jump_g" type="number" min="1" max="4" step="0.05" /></label>
+          <label>crawl_deg <input name="crawl_deg" type="number" min="10" max="90" step="1" /></label>
+          <label>crawl_hold_ms <input name="crawl_hold_ms" type="number" min="50" max="1000" step="10" /></label>
+          <label>jump_refractory_ms <input name="jump_refractory_ms" type="number" min="50" max="1000" step="10" /></label>
+          <button type="submit">Apply</button>
+          <output id="dev-cfg-status" class="dev-status"></output>
+        </form>
+      </section>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -59,12 +59,16 @@ export interface CalMessage {
   readonly reason?: string
 }
 
-export interface CfgMessage {
-  readonly t: 'cfg'
+/** The four tunable Thresholds, shared by the `cfg` message and its editor. */
+export interface Thresholds {
   readonly jump_g: number
   readonly crawl_deg: number
   readonly crawl_hold_ms: number
   readonly jump_refractory_ms: number
+}
+
+export interface CfgMessage extends Thresholds {
+  readonly t: 'cfg'
   readonly seq: number
 }
 
@@ -119,12 +123,17 @@ export interface PageCal {
   readonly action: 'recalibrate'
 }
 
+export interface PageCfg {
+  readonly t: 'cfg'
+  readonly set: Partial<Thresholds>
+}
+
 export interface PageMode {
   readonly t: 'mode'
   readonly m: 'play' | 'raw'
 }
 
-export type PageMessage = PageHello | PageState | PageCal | PageMode
+export type PageMessage = PageHello | PageState | PageCal | PageCfg | PageMode
 
 export function pageHello(app: string, v = PROTOCOL_VERSION): PageHello {
   return { t: 'hello', v, app }
@@ -144,6 +153,10 @@ export function pageState(fields: Omit<PageState, 't'>): PageState {
 
 export function pageCal(): PageCal {
   return { t: 'cal', action: 'recalibrate' }
+}
+
+export function pageCfg(set: Partial<Thresholds>): PageCfg {
+  return { t: 'cfg', set }
 }
 
 export function pageMode(m: 'play' | 'raw'): PageMode {

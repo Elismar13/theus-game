@@ -51,3 +51,96 @@ canvas#game {
 .badge[data-link='down'] {
   color: #ef476f;
 }
+
+.dev-toggle {
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: #9d97bb;
+  background: #171225;
+  border: 1px solid #241d3a;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.dev {
+  width: 320px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: #100c1c;
+  border: 1px solid #241d3a;
+  border-radius: 8px;
+}
+
+.dev-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dev-head h2 {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dev-mode {
+  font-size: 12px;
+}
+
+canvas#dev-plot {
+  display: block;
+  width: 100%;
+  background: #0b0a14;
+  border-radius: 4px;
+}
+
+.dev-readout {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  color: #cdc7e8;
+}
+
+.dev-cfg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  font-size: 12px;
+}
+
+.dev-cfg label {
+  display: grid;
+  gap: 2px;
+}
+
+.dev-cfg input {
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+  background: #0b0a14;
+  border: 1px solid #241d3a;
+  border-radius: 4px;
+  padding: 3px 6px;
+  width: 100%;
+}
+
+.dev-cfg button {
+  font: inherit;
+  font-size: 12px;
+  color: #0b0a14;
+  background: #57c785;
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.dev-status {
+  grid-column: 1 / -1;
+  color: #f4a259;
+}
