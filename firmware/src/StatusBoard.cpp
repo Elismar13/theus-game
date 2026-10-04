@@ -68,6 +68,17 @@ void drawValue(TFT_eSPI& panel, const Region& region, const char* label,
   panel.drawString(value, kLabelX, region.y + 12);
 }
 
+// Two centred lines for the full-panel messages (Recalibration). The longest is
+// 11 characters, which is the most the 80 px width fits at text size 1.
+void drawCentredMessage(TFT_eSPI& panel, const char* top, const char* bottom,
+                        uint16_t color) {
+  panel.setTextDatum(MC_DATUM);
+  panel.setTextColor(color, TFT_BLACK);
+  panel.setTextSize(1);
+  panel.drawString(top, StatusBoard::kWidth / 2, StatusBoard::kHeight / 2 - 10);
+  panel.drawString(bottom, StatusBoard::kWidth / 2, StatusBoard::kHeight / 2 + 6);
+}
+
 }  // namespace
 
 void StatusBoard::begin() {
@@ -163,6 +174,21 @@ void StatusBoard::repaint(const readout::State& state, bool linkUp) {
   linkDrawn_ = false;
   render(state, readout::kAll);
   showLink(linkUp);
+}
+
+void StatusBoard::showCalibration(classifier::Calibration::Phase phase) {
+  if (phase != classifier::Calibration::Phase::Capturing &&
+      phase != classifier::Calibration::Phase::Failed) {
+    return;
+  }
+  panel_.fillScreen(TFT_BLACK);
+  // The message owns the whole window; force the next Link paint to redraw.
+  linkDrawn_ = false;
+  if (phase == classifier::Calibration::Phase::Capturing) {
+    drawCentredMessage(panel_, "CALIBRATING", "STAND STILL", TFT_CYAN);
+  } else {
+    drawCentredMessage(panel_, "CALIBRATION", "FAILED", TFT_RED);
+  }
 }
 
 void StatusBoard::drawScore(int score) {

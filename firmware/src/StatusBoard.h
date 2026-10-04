@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
 
+#include "Classifier.h"
 #include "Readout.h"
 
 // The panel on the Device that shows the state of a Run (CONTEXT.md: Status
@@ -46,6 +47,11 @@ class StatusBoard {
   // was drawn before. Used after the panel self-test, which paints over
   // everything and would otherwise leave its proof behind.
   void repaint(const readout::State& state, bool linkUp);
+
+  // Takes over the panel for a Recalibration: `CALIBRATING`/`STAND STILL` while
+  // capturing, `CALIBRATION`/`FAILED` on a bad capture. Done and Idle paint
+  // nothing; the caller repaints the read-out (whose Run State is READY at boot).
+  void showCalibration(classifier::Calibration::Phase phase);
 
  private:
   void drawScore(int score);
