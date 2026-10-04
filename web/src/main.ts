@@ -1,7 +1,7 @@
 import './style.css'
 import { TUNING, WORLD } from './core/constants'
 import { initial, runState, step } from './core/core'
-import type { GameState } from './core/types'
+import type { GameState, Input } from './core/types'
 import { createDevPanel } from './devpanel/panel'
 import { createKeyboard } from './input/keyboard'
 import { createLink, type Link } from './link/link'
@@ -12,6 +12,9 @@ const STEP_MS = 1000 / 60
 const RESTART_GRACE_MS = 750
 const HIGH_SCORE_KEY = 'theus-game.high-score'
 const MAX_FRAME_MS = 250
+
+/** Input held while a Recalibration freezes control (docs/protocol.md). */
+const FROZEN_INPUT: Input = { jump: false, crawl: false }
 
 const canvasEl = document.getElementById('game')
 if (!(canvasEl instanceof HTMLCanvasElement)) throw new Error('#game canvas is missing')
@@ -43,6 +46,31 @@ function showLink(status: 'up' | 'down'): void {
   if (linkEl === null) return
   linkEl.dataset.link = status
   linkEl.textContent = status === 'up' ? 'LINK OK' : 'LINK LOST'
+}
+
+// The page's Recalibration control. The Device drives it: the button is
+// disabled and input frozen between `cal started` and `cal done`/`failed`.
+const recalibrateEl = document.getElementById('recalibrate')
+const calStatusEl = document.getElementById('cal-status')
+
+function showCalibration(phase: 'started' | 'done' | 'failed' | null): void {
+  if (recalibrateEl instanceof HTMLButtonElement) {
+    recalibrateEl.disabled = phase === 'started'
+  }
+  if (calStatusEl !== null) {
+    calStatusEl.textContent =
+      phase === 'started'
+        ? 'CALIBRATING — STAND STILL'
+        : phase === 'done'
+          ? 'READY'
+          : phase === 'failed'
+            ? 'CALIBRATION FAILED'
+            : ''
+  }
+}
+
+if (recalibrateEl instanceof HTMLButtonElement) {
+  recalibrateEl.addEventListener('click', () => link?.sendCal())
 }
 
 // The Dev Panel is optional: the game must run even if its markup is absent.
@@ -101,8 +129,15 @@ link = createLink({
     maxHearts: TUNING.HEARTS,
     run: runState(state),
   }),
-  onStatus: showLink,
-  onMessage: (message) => devPanel?.handle(message),
+  onStatus: (status) => {
+    showLink(status)
+    // A dropped Link abandons any Recalibration in flight; unfreeze.
+    if (status === 'down') showCalibration(null)
+  },
+  onMessage: (message) => {
+    devPanel?.handle(message)
+    if (message.t === 'cal') showCalibration(message.phase)
+  },
 })
 showLink('down')
 
@@ -133,7 +168,9 @@ function frame(now: number): void {
   }
 
   // A fixed timestep keeps the simulation independent of the display rate.
-  const input = keyboard.input()
+  // A Recalibration freezes Run input so no phantom Jump can cost a Heart.
+  const liveInput = keyboard.input()
+  const input: Input = link?.calibrating ? FROZEN_INPUT : liveInput
   while (accumulator >= STEP_MS) {
     state = step(state, input, STEP_MS)
     accumulator -= STEP_MS

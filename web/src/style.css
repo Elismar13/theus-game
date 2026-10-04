@@ -144,3 +144,29 @@ canvas#dev-plot {
   grid-column: 1 / -1;
   color: #f4a259;
 }
+
+.recalibrate {
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #cdc7e8;
+  background: #171225;
+  border: 1px solid #241d3a;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.recalibrate:disabled {
+  color: #6b6488;
+  cursor: default;
+}
+
+.cal-status {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #f4a259;
+}

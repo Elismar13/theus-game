@@ -1,6 +1,7 @@
 import {
   decode,
   encode,
+  pageCal,
   pageCfg,
   pageHello,
   pageMode,
@@ -63,7 +64,11 @@ export interface Link {
   sendCfg(set: Partial<Thresholds>): void
   /** Switch the Device between play and raw debug mode. */
   sendMode(mode: 'play' | 'raw'): void
+  /** Ask the Device to re-zero the Baseline. */
+  sendCal(): void
   readonly status: LinkStatus
+  /** True between `cal started` and `cal done`/`failed`: freeze Run input. */
+  readonly calibrating: boolean
 }
 
 export function createLink(options: LinkOptions): Link {
@@ -78,6 +83,7 @@ export function createLink(options: LinkOptions): Link {
   let lastStateMs = 0
   let outboundSeq = 0
   let inboundSeq = 0
+  let calibrating = false
 
   function setStatus(next: LinkStatus): void {
     if (next === status) return
@@ -115,6 +121,7 @@ export function createLink(options: LinkOptions): Link {
       inboundSeq = 0
       lastInboundMs = now()
       lastStateMs = 0
+      calibrating = false
       setStatus('down')
       send(encode(pageHello(options.app, PROTOCOL_VERSION)))
       // The protocol asks for an immediate `state` on reconnect.
@@ -124,6 +131,7 @@ export function createLink(options: LinkOptions): Link {
     onClose(): void {
       open = false
       peerHelloSeen = false
+      calibrating = false
       setStatus('down')
     },
 
@@ -140,6 +148,9 @@ export function createLink(options: LinkOptions): Link {
       // Liveness is the Device's heartbeat, not just any traffic: a burst of
       // `raw` in debug mode must not mask a stopped `hb`.
       if (message.t === 'hb') lastInboundMs = now()
+
+      // A Recalibration freezes Run input for its duration (docs/protocol.md).
+      if (message.t === 'cal') calibrating = message.phase === 'started'
 
       if (message.t === 'hello' && message.v === PROTOCOL_VERSION) {
         peerHelloSeen = true
@@ -163,8 +174,16 @@ export function createLink(options: LinkOptions): Link {
       send(encode(pageMode(mode)))
     },
 
+    sendCal(): void {
+      send(encode(pageCal()))
+    },
+
     get status(): LinkStatus {
       return status
+    },
+
+    get calibrating(): boolean {
+      return calibrating
     },
   }
 }

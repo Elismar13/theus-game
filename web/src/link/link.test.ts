@@ -196,3 +196,47 @@ describe('Tuning', () => {
     expect(messages.map((message) => message.t)).toEqual(['cfg', 'raw'])
   })
 })
+
+describe('Recalibration', () => {
+  it('sends a recalibrate request and freezes input until it lands', () => {
+    const { link, sent } = harness()
+    link.onOpen()
+    sent.length = 0
+
+    expect(link.calibrating).toBe(false)
+    link.sendCal()
+    expect(sentMessage(sent[0])).toEqual({ t: 'cal', action: 'recalibrate' })
+
+    link.receive('{"t":"cal","phase":"started"}')
+    expect(link.calibrating).toBe(true)
+
+    link.receive('{"t":"cal","phase":"done"}')
+    expect(link.calibrating).toBe(false)
+  })
+
+  it('unfreezes when the capture fails', () => {
+    const { link } = harness()
+    link.onOpen()
+    link.receive('{"t":"cal","phase":"started"}')
+    expect(link.calibrating).toBe(true)
+
+    link.receive('{"t":"cal","phase":"failed","reason":"too noisy"}')
+    expect(link.calibrating).toBe(false)
+  })
+
+  it('resets the freeze when the socket closes', () => {
+    const { link } = harness()
+    link.onOpen()
+    link.receive('{"t":"cal","phase":"started"}')
+    expect(link.calibrating).toBe(true)
+
+    link.onClose()
+    expect(link.calibrating).toBe(false)
+  })
+
+  it('drops a recalibrate request while the socket is closed', () => {
+    const { link, sent } = harness()
+    link.sendCal()
+    expect(sent).toHaveLength(0)
+  })
+})
