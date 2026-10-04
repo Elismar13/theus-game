@@ -23,6 +23,8 @@ constexpr float kGyroLsbPerDps = 32768.0f / static_cast<float>(kGyroRangeDps);
 bool Bmi160::begin() {
   // -1 for the interrupt pin: GPIO2 is a strapping pin (docs/hardware.md) and
   // the MVP does not use the sensor interrupt.
+  Wire.begin();
+
   if (!BMI160.begin(BMI160GenClass::I2C_MODE, kI2cAddress, -1)) {
     return false;
   }
