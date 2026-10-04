@@ -70,6 +70,8 @@ void LinkServer::begin(StatusBoard& board) {
               &LinkServer::saveThresholds);
   // The page owns Run State; the Device mirrors it onto the Status Board (#7).
   link_.setStateHandler(&LinkServer::onState);
+  // The board shows the Recalibration screen and READY when it lands (#12).
+  link_.setCalibrationHandler(&LinkServer::onCalibration);
 
   socket_.begin();
   socket_.onEvent([this](uint8_t clientId, WStype_t type, uint8_t* payload, size_t length) {
@@ -111,6 +113,10 @@ void LinkServer::toggleRawMode() {
   Serial.printf("raw mode %s\n", link_.rawMode() ? "on" : "off");
 }
 
+void LinkServer::startRecalibration(uint32_t nowMs) {
+  link_.startRecalibration(nowMs);
+}
+
 void LinkServer::saveThresholds(void* context, const thresholds::Values& values) {
   static_cast<LinkServer*>(context)->settings_.save(values);
 }
@@ -121,11 +127,35 @@ void LinkServer::closeClient(void* context, uint8_t clientId) {
 
 void LinkServer::onState(void* context, const protocol::Object& state) {
   auto* self = static_cast<LinkServer*>(context);
+  // During a Recalibration the panel belongs to the calibration screen; a
+  // `state` frame must not paint over it.
+  if (self->link_.calibrating()) {
+    return;
+  }
   const uint32_t changed = readout::apply(self->readout_, state);
   // Only the fields that moved are repainted, so a Score tick leaves the rest
   // of the panel alone.
   if (changed != 0 && self->board_ != nullptr) {
     self->board_->render(self->readout_, changed);
+  }
+}
+
+void LinkServer::onCalibration(void* context, classifier::Calibration::Phase phase) {
+  auto* self = static_cast<LinkServer*>(context);
+  if (self->board_ == nullptr) {
+    return;
+  }
+  switch (phase) {
+    case classifier::Calibration::Phase::Capturing:
+    case classifier::Calibration::Phase::Failed:
+      self->board_->showCalibration(phase);
+      break;
+    case classifier::Calibration::Phase::Done:
+      // Restore the read-out; at boot its Run State is READY.
+      self->board_->repaint(self->readout_, self->link_.up());
+      break;
+    case classifier::Calibration::Phase::Idle:
+      break;
   }
 }
 

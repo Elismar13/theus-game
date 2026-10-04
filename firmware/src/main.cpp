@@ -37,7 +37,10 @@ void handleEvent(Button::Event event) {
       Serial.printf("double-click -> mute %s\n", buzzer.muted() ? "on" : "off");
       break;
     case Button::Event::LongPress:
-      Serial.println("long-press");
+      // Re-zero the Baseline without touching a keyboard.
+      buzzer.play(sounds::Sound::Recalibration);
+      linkServer.startRecalibration(millis());
+      Serial.println("long-press -> recalibrate");
       break;
     case Button::Event::None:
       break;
@@ -61,6 +64,7 @@ void handleSerialCommand() {
       break;
     case 'r':
       buzzer.play(sounds::Sound::Recalibration);
+      linkServer.startRecalibration(millis());
       break;
     case 'b':
       buzzer.play(sounds::Sound::LowBattery);
@@ -105,6 +109,12 @@ void setup() {
   statusBoard.selfTest();
   // The self-test leaves its own proof on the panel; restore the read-out.
   linkServer.refreshBoard();
+
+  // With the bench proof cleared, auto-calibrate: the player holds still, the
+  // panel says CALIBRATING, and it settles on READY.
+  if (sensorReady) {
+    linkServer.startRecalibration(millis());
+  }
 
   printHelp();
 }

@@ -27,6 +27,9 @@ class LinkServer {
   // Bench convenience: raw mode is normally driven by the page's `mode`.
   void toggleRawMode();
 
+  // Starts a Recalibration from the Device side (boot or button long-press).
+  void startRecalibration(uint32_t nowMs);
+
   bool linkUp() const { return link_.up(); }
 
   // Repaints the whole Status Board from the current mirror. Used after the
@@ -38,6 +41,7 @@ class LinkServer {
   static void closeClient(void* context, uint8_t clientId);
   static void saveThresholds(void* context, const thresholds::Values& values);
   static void onState(void* context, const protocol::Object& state);
+  static void onCalibration(void* context, classifier::Calibration::Phase phase);
 
   void onSocketEvent(uint8_t clientId, WStype_t type, uint8_t* payload, size_t length);
   bool serveFile(const String& path);
