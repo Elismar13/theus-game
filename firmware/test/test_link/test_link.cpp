@@ -182,6 +182,13 @@ void test_unknown_message_is_refused_with_an_error(void) {
   TEST_ASSERT_EQUAL_UINT32(1, transport.sent.size());
   TEST_ASSERT_EQUAL_STRING("err", typeOf(transport.sent[0].frame).c_str());
   TEST_ASSERT_EQUAL_STRING("bad_message", codeOf(transport.sent[0].frame).c_str());
+
+  // A bad message must not close the Link: no close callback, the Session is
+  // still bound, and the next well-formed frame is accepted.
+  TEST_ASSERT_EQUAL_UINT32(0, transport.closed.size());
+  TEST_ASSERT_TRUE(transport.link.up());
+  TEST_ASSERT_EQUAL_INT(1, transport.link.session());
+  TEST_ASSERT_TRUE(transport.link.onFrame(1, "{\"t\":\"state\",\"score\":1,\"seq\":1}", 11));
 }
 
 void test_protocol_version_mismatch_closes_the_client(void) {

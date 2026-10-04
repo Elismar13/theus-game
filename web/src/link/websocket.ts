@@ -1,7 +1,5 @@
+import { createBackoff } from './backoff'
 import type { LinkSocket } from './link'
-
-const MIN_BACKOFF_MS = 250
-const MAX_BACKOFF_MS = 5000
 
 export interface SocketHandlers {
   onOpen(): void
@@ -17,21 +15,19 @@ export interface SocketHandlers {
  */
 export function connectLink(url: string, handlers: SocketHandlers): LinkSocket {
   let socket: WebSocket | null = null
-  let backoffMs = MIN_BACKOFF_MS
+  const backoff = createBackoff()
   let timer: number | null = null
   let stopped = false
 
   function schedule(): void {
     if (stopped) return
-    const delay = backoffMs
-    backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS)
-    timer = window.setTimeout(open, delay)
+    timer = window.setTimeout(open, backoff.next())
   }
 
   function open(): void {
     socket = new WebSocket(url)
     socket.onopen = () => {
-      backoffMs = MIN_BACKOFF_MS
+      backoff.reset()
       handlers.onOpen()
     }
     socket.onmessage = (event) => {

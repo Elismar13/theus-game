@@ -137,6 +137,15 @@ describe('Ordering', () => {
     expect(messages.map((message) => (message.t === 'hb' ? message.seq : 0))).toEqual([5, 6])
   })
 
+  it('drops a repeated seq from the Device', () => {
+    const { link, messages } = harness()
+    link.onOpen()
+    link.receive(HB(5))
+    link.receive(HB(5))
+    link.receive(HB(7))
+    expect(messages.map((message) => (message.t === 'hb' ? message.seq : 0))).toEqual([5, 7])
+  })
+
   it('ignores malformed and unknown frames', () => {
     const { link, messages, advance } = harness()
     link.onOpen()
