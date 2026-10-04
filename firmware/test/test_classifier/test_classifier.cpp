@@ -190,74 +190,78 @@ void test_intent_names_match_the_wire(void) {
 }
 
 // Feeds a still capture at `pitchDeg` from 0 to the end of the window, and
-// returns the Calibration once it has finished.
-classifier::Calibration stillCapture(float pitchDeg) {
-  classifier::Calibration calibration;
-  calibration.start(0);
+// returns the Recalibration once it has finished.
+classifier::Recalibration stillCapture(float pitchDeg) {
+  classifier::Recalibration recalibration;
+  recalibration.start(0);
   for (uint32_t t = 0; t <= 1500; t += 10) {
-    calibration.addSample(sampleAt(pitchDeg, 1.0f), t);
+    recalibration.addSample(sampleAt(pitchDeg, 1.0f), t);
   }
-  return calibration;
+  return recalibration;
 }
 
-void test_a_still_calibration_captures_the_mean_pitch(void) {
-  classifier::Calibration calibration = stillCapture(10.0f);
-  TEST_ASSERT_TRUE(calibration.phase() == classifier::Calibration::Phase::Done);
-  TEST_ASSERT_FLOAT_WITHIN(0.001f, 10.0f, calibration.baseline().pitch);
+void test_a_still_recalibration_captures_the_mean_pitch(void) {
+  classifier::Recalibration recalibration = stillCapture(10.0f);
+  TEST_ASSERT_TRUE(recalibration.phase() == classifier::Recalibration::Phase::Done);
+  TEST_ASSERT_TRUE(recalibration.failure() == classifier::Recalibration::Failure::None);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 10.0f, recalibration.baseline().pitch);
 }
 
-void test_a_still_tilted_calibration_captures_the_tilt(void) {
+void test_a_still_tilted_recalibration_captures_the_tilt(void) {
   // The Baseline is where the torso actually rests, not zero.
-  classifier::Calibration calibration = stillCapture(-15.0f);
-  TEST_ASSERT_TRUE(calibration.phase() == classifier::Calibration::Phase::Done);
-  TEST_ASSERT_FLOAT_WITHIN(0.001f, -15.0f, calibration.baseline().pitch);
+  classifier::Recalibration recalibration = stillCapture(-15.0f);
+  TEST_ASSERT_TRUE(recalibration.phase() == classifier::Recalibration::Phase::Done);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, -15.0f, recalibration.baseline().pitch);
 }
 
-void test_a_moving_calibration_fails(void) {
-  classifier::Calibration calibration;
-  calibration.start(0);
+void test_a_moving_recalibration_fails(void) {
+  classifier::Recalibration recalibration;
+  recalibration.start(0);
   for (uint32_t t = 0; t <= 1500; t += 10) {
     const float pitch = (t / 10) % 2 == 0 ? 30.0f : -30.0f;
-    calibration.addSample(sampleAt(pitch, 1.0f), t);
+    recalibration.addSample(sampleAt(pitch, 1.0f), t);
   }
-  TEST_ASSERT_TRUE(calibration.phase() == classifier::Calibration::Phase::Failed);
+  TEST_ASSERT_TRUE(recalibration.phase() == classifier::Recalibration::Phase::Failed);
+  TEST_ASSERT_TRUE(recalibration.failure() == classifier::Recalibration::Failure::TooNoisy);
 }
 
-void test_a_calibration_with_too_few_samples_fails(void) {
-  classifier::Calibration calibration;
-  calibration.start(0);
-  calibration.addSample(rest(), 0);
-  calibration.addSample(rest(), 10);
+void test_a_recalibration_with_too_few_samples_fails(void) {
+  classifier::Recalibration recalibration;
+  recalibration.start(0);
+  recalibration.addSample(rest(), 0);
+  recalibration.addSample(rest(), 10);
   // Samples stop; the time failsafe must still finish the capture.
-  TEST_ASSERT_TRUE(calibration.tick(1500));
-  TEST_ASSERT_TRUE(calibration.phase() == classifier::Calibration::Phase::Failed);
+  TEST_ASSERT_TRUE(recalibration.tick(1500));
+  TEST_ASSERT_TRUE(recalibration.phase() == classifier::Recalibration::Phase::Failed);
+  TEST_ASSERT_TRUE(recalibration.failure() ==
+                   classifier::Recalibration::Failure::TooFewSamples);
 }
 
 void test_a_capture_with_no_samples_fails_on_tick(void) {
-  classifier::Calibration calibration;
-  calibration.start(0);
-  TEST_ASSERT_FALSE(calibration.tick(1499));
-  TEST_ASSERT_TRUE(calibration.tick(1500));
-  TEST_ASSERT_TRUE(calibration.phase() == classifier::Calibration::Phase::Failed);
+  classifier::Recalibration recalibration;
+  recalibration.start(0);
+  TEST_ASSERT_FALSE(recalibration.tick(1499));
+  TEST_ASSERT_TRUE(recalibration.tick(1500));
+  TEST_ASSERT_TRUE(recalibration.phase() == classifier::Recalibration::Phase::Failed);
 }
 
-void test_a_failed_calibration_keeps_the_previous_baseline(void) {
-  classifier::Calibration calibration = stillCapture(12.0f);
-  TEST_ASSERT_FLOAT_WITHIN(0.001f, 12.0f, calibration.baseline().pitch);
+void test_a_failed_recalibration_keeps_the_previous_baseline(void) {
+  classifier::Recalibration recalibration = stillCapture(12.0f);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 12.0f, recalibration.baseline().pitch);
 
-  calibration.start(10000);
+  recalibration.start(10000);
   for (uint32_t t = 10000; t <= 11500; t += 10) {
     const float pitch = ((t - 10000) / 10) % 2 == 0 ? 30.0f : -30.0f;
-    calibration.addSample(sampleAt(pitch, 1.0f), t);
+    recalibration.addSample(sampleAt(pitch, 1.0f), t);
   }
-  TEST_ASSERT_TRUE(calibration.phase() == classifier::Calibration::Phase::Failed);
-  TEST_ASSERT_FLOAT_WITHIN(0.001f, 12.0f, calibration.baseline().pitch);
+  TEST_ASSERT_TRUE(recalibration.phase() == classifier::Recalibration::Phase::Failed);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 12.0f, recalibration.baseline().pitch);
 }
 
 void test_a_sample_outside_a_capture_is_ignored(void) {
-  classifier::Calibration calibration;
-  TEST_ASSERT_FALSE(calibration.addSample(rest(), 0));
-  TEST_ASSERT_TRUE(calibration.phase() == classifier::Calibration::Phase::Idle);
+  classifier::Recalibration recalibration;
+  TEST_ASSERT_FALSE(recalibration.addSample(rest(), 0));
+  TEST_ASSERT_TRUE(recalibration.phase() == classifier::Recalibration::Phase::Idle);
 }
 
 int main() {
@@ -276,12 +280,12 @@ int main() {
   RUN_TEST(test_crawl_is_measured_relative_to_the_baseline);
   RUN_TEST(test_jump_takes_priority_over_crawl_on_the_same_sample);
   RUN_TEST(test_intent_names_match_the_wire);
-  RUN_TEST(test_a_still_calibration_captures_the_mean_pitch);
-  RUN_TEST(test_a_still_tilted_calibration_captures_the_tilt);
-  RUN_TEST(test_a_moving_calibration_fails);
-  RUN_TEST(test_a_calibration_with_too_few_samples_fails);
+  RUN_TEST(test_a_still_recalibration_captures_the_mean_pitch);
+  RUN_TEST(test_a_still_tilted_recalibration_captures_the_tilt);
+  RUN_TEST(test_a_moving_recalibration_fails);
+  RUN_TEST(test_a_recalibration_with_too_few_samples_fails);
   RUN_TEST(test_a_capture_with_no_samples_fails_on_tick);
-  RUN_TEST(test_a_failed_calibration_keeps_the_previous_baseline);
+  RUN_TEST(test_a_failed_recalibration_keeps_the_previous_baseline);
   RUN_TEST(test_a_sample_outside_a_capture_is_ignored);
   return UNITY_END();
 }

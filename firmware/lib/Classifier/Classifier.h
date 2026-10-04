@@ -62,13 +62,20 @@ const char* intentName(Intent intent);
 // capture the player moved during as `Failed`. Pure: samples and a monotonic
 // clock in, a phase and a Baseline out, so the noisy-capture case runs on the
 // host like the rest of the Edge Classifier.
-class Calibration {
+class Recalibration {
  public:
   enum class Phase : uint8_t {
     Idle,       // no capture in progress
     Capturing,  // collecting samples
     Done,       // a Baseline was captured
     Failed,     // too noisy or too few samples to trust
+  };
+
+  // Why a capture failed, for the `cal failed` reason.
+  enum class Failure : uint8_t {
+    None,
+    TooNoisy,
+    TooFewSamples,
   };
 
   struct Config {
@@ -93,6 +100,8 @@ class Calibration {
 
   Phase phase() const { return phase_; }
   bool active() const { return phase_ == Phase::Capturing; }
+  // Why the last capture failed, when phase() is Failed.
+  Failure failure() const { return failure_; }
   // Valid when phase() is Done. The previous value is kept on Failed.
   const Baseline& baseline() const { return baseline_; }
 
@@ -101,6 +110,7 @@ class Calibration {
 
   Config config_{};
   Phase phase_ = Phase::Idle;
+  Failure failure_ = Failure::None;
   Baseline baseline_{};
   uint32_t startMs_ = 0;
   uint16_t samples_ = 0;

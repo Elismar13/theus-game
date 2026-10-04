@@ -88,7 +88,7 @@ const char* intentName(Intent intent) {
   return "";
 }
 
-void Calibration::start(uint32_t nowMs) {
+void Recalibration::start(uint32_t nowMs) {
   phase_ = Phase::Capturing;
   startMs_ = nowMs;
   samples_ = 0;
@@ -97,7 +97,7 @@ void Calibration::start(uint32_t nowMs) {
   pitchMax_ = 0.0f;
 }
 
-bool Calibration::addSample(const signals::Sample& sample, uint32_t nowMs) {
+bool Recalibration::addSample(const signals::Sample& sample, uint32_t nowMs) {
   if (!active()) {
     return false;
   }
@@ -119,14 +119,14 @@ bool Calibration::addSample(const signals::Sample& sample, uint32_t nowMs) {
   return false;
 }
 
-bool Calibration::tick(uint32_t nowMs) {
+bool Recalibration::tick(uint32_t nowMs) {
   if (!active() || nowMs - startMs_ < config_.windowMs) {
     return false;
   }
   return finish();
 }
 
-bool Calibration::finish() {
+bool Recalibration::finish() {
   // Trustworthy only if the player held still: enough samples, and the pitch
   // never wandered further than the tolerated spread.
   const bool trusted = samples_ >= config_.minSamples &&
@@ -134,8 +134,10 @@ bool Calibration::finish() {
   if (trusted) {
     baseline_.pitch = pitchSum_ / static_cast<float>(samples_);
     phase_ = Phase::Done;
+    failure_ = Failure::None;
   } else {
     phase_ = Phase::Failed;
+    failure_ = samples_ < config_.minSamples ? Failure::TooFewSamples : Failure::TooNoisy;
   }
   return true;
 }

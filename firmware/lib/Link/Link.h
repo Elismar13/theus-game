@@ -33,7 +33,7 @@ class Link {
   // interpret Run State itself; the mirror decides what it means (#7).
   using StateFn = void (*)(void* context, const protocol::Object& state);
   // Reports a Recalibration phase change (started, done, failed).
-  using CalFn = void (*)(void* context, classifier::Calibration::Phase phase);
+  using CalFn = void (*)(void* context, classifier::Recalibration::Phase phase);
 
   struct Config {
     const char* fw = "0.0.0";
@@ -57,7 +57,7 @@ class Link {
   void setStateHandler(StateFn handler) { stateFn_ = handler; }
 
   // Registers the Recalibration sink. Optional, like the `state` sink.
-  void setCalibrationHandler(CalFn handler) { calFn_ = handler; }
+  void setRecalibrationHandler(CalFn handler) { calFn_ = handler; }
 
   // Starts a Recalibration from the Device side (boot or button long-press).
   // Ignored while one is already in flight.
@@ -65,8 +65,8 @@ class Link {
 
   // True while a Recalibration is capturing: the Edge Classifier is frozen and
   // no `evt` may be emitted.
-  bool calibrating() const { return calibration_.active(); }
-  classifier::Calibration::Phase calibrationPhase() const { return calibration_.phase(); }
+  bool recalibrating() const { return recalibration_.active(); }
+  classifier::Recalibration::Phase recalibrationPhase() const { return recalibration_.phase(); }
 
   // Periodic service: emits the heartbeat and watches for silence.
   void tick(uint32_t nowMs);
@@ -111,7 +111,7 @@ class Link {
   void sendError(uint8_t clientId, const char* code, const char* message);
   void sendCal(const char* phase, const char* reason = nullptr);
   // Applies the captured Baseline (or keeps the old one) and reports the phase.
-  void finishCalibration();
+  void finishRecalibration();
   // Emits one `raw` frame if raw mode is on and its interval has elapsed.
   void maybeSendRaw(const signals::Sample& sample, uint32_t nowMs);
   // Validates a `cfg.set` patch and writes the merged result to `out`. Returns
@@ -139,5 +139,5 @@ class Link {
   int batteryMv_ = 0;
   classifier::State classifierState_{};
   classifier::Baseline baseline_{};
-  classifier::Calibration calibration_;
+  classifier::Recalibration recalibration_;
 };

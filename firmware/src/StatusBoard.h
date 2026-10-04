@@ -51,7 +51,7 @@ class StatusBoard {
   // Takes over the panel for a Recalibration: `CALIBRATING`/`STAND STILL` while
   // capturing, `CALIBRATION`/`FAILED` on a bad capture. Done and Idle paint
   // nothing; the caller repaints the read-out (whose Run State is READY at boot).
-  void showCalibration(classifier::Calibration::Phase phase);
+  void showRecalibration(classifier::Recalibration::Phase phase);
 
  private:
   void drawScore(int score);

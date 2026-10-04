@@ -176,15 +176,15 @@ void StatusBoard::repaint(const readout::State& state, bool linkUp) {
   showLink(linkUp);
 }
 
-void StatusBoard::showCalibration(classifier::Calibration::Phase phase) {
-  if (phase != classifier::Calibration::Phase::Capturing &&
-      phase != classifier::Calibration::Phase::Failed) {
+void StatusBoard::showRecalibration(classifier::Recalibration::Phase phase) {
+  if (phase != classifier::Recalibration::Phase::Capturing &&
+      phase != classifier::Recalibration::Phase::Failed) {
     return;
   }
   panel_.fillScreen(TFT_BLACK);
   // The message owns the whole window; force the next Link paint to redraw.
   linkDrawn_ = false;
-  if (phase == classifier::Calibration::Phase::Capturing) {
+  if (phase == classifier::Recalibration::Phase::Capturing) {
     drawCentredMessage(panel_, "CALIBRATING", "STAND STILL", TFT_CYAN);
   } else {
     drawCentredMessage(panel_, "CALIBRATION", "FAILED", TFT_RED);

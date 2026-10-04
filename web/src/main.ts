@@ -53,7 +53,7 @@ function showLink(status: 'up' | 'down'): void {
 const recalibrateEl = document.getElementById('recalibrate')
 const calStatusEl = document.getElementById('cal-status')
 
-function showCalibration(phase: 'started' | 'done' | 'failed' | null): void {
+function showRecalibration(phase: 'started' | 'done' | 'failed' | null): void {
   if (recalibrateEl instanceof HTMLButtonElement) {
     recalibrateEl.disabled = phase === 'started'
   }
@@ -132,11 +132,11 @@ link = createLink({
   onStatus: (status) => {
     showLink(status)
     // A dropped Link abandons any Recalibration in flight; unfreeze.
-    if (status === 'down') showCalibration(null)
+    if (status === 'down') showRecalibration(null)
   },
   onMessage: (message) => {
     devPanel?.handle(message)
-    if (message.t === 'cal') showCalibration(message.phase)
+    if (message.t === 'cal') showRecalibration(message.phase)
   },
 })
 showLink('down')
@@ -170,7 +170,7 @@ function frame(now: number): void {
   // A fixed timestep keeps the simulation independent of the display rate.
   // A Recalibration freezes Run input so no phantom Jump can cost a Heart.
   const liveInput = keyboard.input()
-  const input: Input = link?.calibrating ? FROZEN_INPUT : liveInput
+  const input: Input = link?.recalibrating ? FROZEN_INPUT : liveInput
   while (accumulator >= STEP_MS) {
     state = step(state, input, STEP_MS)
     accumulator -= STEP_MS

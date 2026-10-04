@@ -31,7 +31,7 @@ void Link::begin(const Config& config, SendFn send, CloseFn close, void* context
   outboundSeq_ = 0;
   inboundSeq_ = 0;
   classifierState_ = classifier::State{};
-  calibration_ = classifier::Calibration{};
+  recalibration_ = classifier::Recalibration{};
 }
 
 void Link::onClientConnected(uint8_t clientId, uint32_t nowMs) {
@@ -75,8 +75,8 @@ void Link::onClientDisconnected(uint8_t clientId) {
 
 void Link::tick(uint32_t nowMs) {
   // The time failsafe runs even with no Session: a capture must not hang.
-  if (calibration_.active() && calibration_.tick(nowMs)) {
-    finishCalibration();
+  if (recalibration_.active() && recalibration_.tick(nowMs)) {
+    finishRecalibration();
   }
 
   if (session_ < 0) {
@@ -95,15 +95,15 @@ void Link::tick(uint32_t nowMs) {
 }
 
 void Link::startRecalibration(uint32_t nowMs) {
-  if (calibration_.active()) {
+  if (recalibration_.active()) {
     return;
   }
   // Freeze the Edge Classifier: no gesture may straddle the capture.
   classifierState_ = classifier::State{};
-  calibration_.start(nowMs);
+  recalibration_.start(nowMs);
   sendCal("started");
   if (calFn_ != nullptr) {
-    calFn_(context_, calibration_.phase());
+    calFn_(context_, recalibration_.phase());
   }
 }
 
@@ -273,11 +273,11 @@ bool Link::applyPatch(const protocol::Object& patch, thresholds::Values& out) co
 }
 
 void Link::onSample(const signals::Sample& sample, uint32_t nowMs) {
-  if (calibration_.active()) {
+  if (recalibration_.active()) {
     // A capture owns the samples: the Edge Classifier is frozen so no `evt` can
     // fire from the motion of settling, but the raw stream still runs.
-    if (calibration_.addSample(sample, nowMs)) {
-      finishCalibration();
+    if (recalibration_.addSample(sample, nowMs)) {
+      finishRecalibration();
     }
     maybeSendRaw(sample, nowMs);
     return;
@@ -338,15 +338,19 @@ void Link::maybeSendRaw(const signals::Sample& sample, uint32_t nowMs) {
   }
 }
 
-void Link::finishCalibration() {
-  if (calibration_.phase() == classifier::Calibration::Phase::Done) {
-    baseline_ = calibration_.baseline();
+void Link::finishRecalibration() {
+  if (recalibration_.phase() == classifier::Recalibration::Phase::Done) {
+    baseline_ = recalibration_.baseline();
     sendCal("done");
   } else {
-    sendCal("failed", "too noisy");
+    const char* reason =
+        recalibration_.failure() == classifier::Recalibration::Failure::TooFewSamples
+            ? "no signal"
+            : "too noisy";
+    sendCal("failed", reason);
   }
   if (calFn_ != nullptr) {
-    calFn_(context_, calibration_.phase());
+    calFn_(context_, recalibration_.phase());
   }
 }
 

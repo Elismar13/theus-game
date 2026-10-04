@@ -70,7 +70,7 @@ describe('device-to-page codec', () => {
       v: PROTOCOL_VERSION,
       fw: '0.1.0',
       dev: 'AABBCC',
-      caps: ['cfg', 'raw'],
+      caps: ['cal', 'cfg', 'raw'],
     })
   })
 
@@ -113,7 +113,7 @@ describe('device-to-page codec', () => {
     expect(joined).toEqual({ t: 'hb', up_ms: 2234, batt_mv: 3880, rssi: -58, seq: 2 })
   })
 
-  it('reads intents and calibration', () => {
+  it('reads intents and Recalibration', () => {
     expect(decode('{"t":"evt","e":"JUMP","ts":1000,"seq":3}')).toEqual({
       t: 'evt',
       e: 'JUMP',

@@ -122,7 +122,7 @@ void test_writer_matches_the_golden_frames(void) {
   helloWriter.key("dev");
   helloWriter.string("AABBCC");
   helloWriter.key("caps");
-  helloWriter.raw("[\"cfg\",\"raw\"]");
+  helloWriter.raw("[\"cal\",\"cfg\",\"raw\"]");
   helloWriter.objectEnd();
   TEST_ASSERT_TRUE(helloWriter.ok());
   TEST_ASSERT_EQUAL_STRING(lines[0].c_str(), hello);

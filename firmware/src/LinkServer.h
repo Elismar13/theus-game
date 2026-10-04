@@ -41,7 +41,7 @@ class LinkServer {
   static void closeClient(void* context, uint8_t clientId);
   static void saveThresholds(void* context, const thresholds::Values& values);
   static void onState(void* context, const protocol::Object& state);
-  static void onCalibration(void* context, classifier::Calibration::Phase phase);
+  static void onRecalibration(void* context, classifier::Recalibration::Phase phase);
 
   void onSocketEvent(uint8_t clientId, WStype_t type, uint8_t* payload, size_t length);
   bool serveFile(const String& path);
@@ -53,5 +53,8 @@ class LinkServer {
   StatusBoard* board_ = nullptr;
   readout::State readout_;
   bool shownLinkUp_ = false;
+  // True while the panel is showing a recalibration screen, so the next `state`
+  // frame restores the whole read-out rather than one band over a blank panel.
+  bool recalibrationScreen_ = false;
   char deviceId_[16] = {};
 };

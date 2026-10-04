@@ -22,7 +22,7 @@ struct Transport {
   /** The Score of each `state` frame the mirror saw, in arrival order. */
   std::vector<long> stateScores;
   /** The Recalibration phases the Link reported, in order. */
-  std::vector<classifier::Calibration::Phase> calPhases;
+  std::vector<classifier::Recalibration::Phase> calPhases;
 
   static bool onSend(void* context, uint8_t client, const char* frame) {
     static_cast<Transport*>(context)->sent.push_back({client, frame});
@@ -43,7 +43,7 @@ struct Transport {
     static_cast<Transport*>(context)->stateScores.push_back(score);
   }
 
-  static void onCal(void* context, classifier::Calibration::Phase phase) {
+  static void onCal(void* context, classifier::Recalibration::Phase phase) {
     static_cast<Transport*>(context)->calPhases.push_back(phase);
   }
 
@@ -51,7 +51,7 @@ struct Transport {
     Link::Config config;
     config.fw = "0.1.0";
     config.dev = "AABBCC";
-    config.caps = "\"cfg\",\"raw\"";
+    config.caps = "\"cal\",\"cfg\",\"raw\"";
     link.begin(config, onSend, onClose, this, onSave);
   }
 
@@ -115,6 +115,13 @@ std::string phaseOf(const std::string& frame) {
   return frame.substr(start, end - start);
 }
 
+/** The `reason` field of a `cal` frame. */
+std::string reasonOf(const std::string& frame) {
+  const size_t start = frame.find("\"reason\":\"") + 10;
+  const size_t end = frame.find('"', start);
+  return frame.substr(start, end - start);
+}
+
 }  // namespace
 
 void test_hello_opens_the_session_and_carries_the_thresholds(void) {
@@ -125,7 +132,7 @@ void test_hello_opens_the_session_and_carries_the_thresholds(void) {
   TEST_ASSERT_EQUAL_UINT32(2, transport.sent.size());
   TEST_ASSERT_EQUAL_UINT8(3, transport.sent[0].client);
   TEST_ASSERT_EQUAL_STRING(
-      "{\"t\":\"hello\",\"v\":1,\"fw\":\"0.1.0\",\"dev\":\"AABBCC\",\"caps\":[\"cfg\",\"raw\"]}",
+      "{\"t\":\"hello\",\"v\":1,\"fw\":\"0.1.0\",\"dev\":\"AABBCC\",\"caps\":[\"cal\",\"cfg\",\"raw\"]}",
       transport.sent[0].frame.c_str());
   TEST_ASSERT_EQUAL_UINT8(3, transport.sent[1].client);
   TEST_ASSERT_EQUAL_STRING(
@@ -572,14 +579,14 @@ void test_reconnect_discards_an_in_flight_crouch(void) {
 void test_a_page_recalibration_captures_and_applies_a_baseline(void) {
   Transport transport;
   transport.begin();
-  transport.link.setCalibrationHandler(Transport::onCal);
+  transport.link.setRecalibrationHandler(Transport::onCal);
   transport.link.onClientConnected(1, 0);
   transport.heardHello(1, 0);
   transport.sent.clear();
 
   TEST_ASSERT_TRUE(
       transport.link.onFrame(1, "{\"t\":\"cal\",\"action\":\"recalibrate\"}", 0));
-  TEST_ASSERT_TRUE(transport.link.calibrating());
+  TEST_ASSERT_TRUE(transport.link.recalibrating());
   TEST_ASSERT_EQUAL_UINT32(1, transport.sent.size());
   TEST_ASSERT_EQUAL_STRING("cal", typeOf(transport.sent[0].frame).c_str());
   TEST_ASSERT_EQUAL_STRING("started", phaseOf(transport.sent[0].frame).c_str());
@@ -588,14 +595,14 @@ void test_a_page_recalibration_captures_and_applies_a_baseline(void) {
   for (uint32_t now = 0; now <= 1500; now += 10) {
     transport.link.onSample(sampleAt(10.0f, 1.0f), now);
   }
-  TEST_ASSERT_FALSE(transport.link.calibrating());
+  TEST_ASSERT_FALSE(transport.link.recalibrating());
 
   // Only `started` and `done`; no `evt` escaped the capture.
   TEST_ASSERT_EQUAL_UINT32(2, transport.sent.size());
   TEST_ASSERT_EQUAL_STRING("done", phaseOf(transport.sent[1].frame).c_str());
   TEST_ASSERT_EQUAL_STRING("cal", typeOf(transport.sent[1].frame).c_str());
   TEST_ASSERT_EQUAL_UINT32(2, transport.calPhases.size());
-  TEST_ASSERT_TRUE(transport.calPhases[1] == classifier::Calibration::Phase::Done);
+  TEST_ASSERT_TRUE(transport.calPhases[1] == classifier::Recalibration::Phase::Done);
 
   // The Baseline is now 10 deg: a 20 deg absolute lean is only 10 deg forward
   // and does not commit, but a 55 deg absolute crouch is 45 deg forward and does.
@@ -627,10 +634,11 @@ void test_a_noisy_recalibration_reports_failed_without_emitting_evt(void) {
     transport.link.onSample(sampleAt(peak ? 40.0f : -40.0f, peak ? 1.0f : 1.9f), now);
   }
 
-  TEST_ASSERT_FALSE(transport.link.calibrating());
+  TEST_ASSERT_FALSE(transport.link.recalibrating());
   TEST_ASSERT_EQUAL_UINT32(2, transport.sent.size());
   TEST_ASSERT_EQUAL_STRING("cal", typeOf(transport.sent[0].frame).c_str());
   TEST_ASSERT_EQUAL_STRING("failed", phaseOf(transport.sent[1].frame).c_str());
+  TEST_ASSERT_EQUAL_STRING("too noisy", reasonOf(transport.sent[1].frame).c_str());
   for (const Sent& sent : transport.sent) {
     TEST_ASSERT_EQUAL_STRING("cal", typeOf(sent.frame).c_str());
   }
@@ -646,7 +654,7 @@ void test_recalibrate_with_an_unknown_action_is_refused(void) {
   TEST_ASSERT_FALSE(transport.link.onFrame(1, "{\"t\":\"cal\",\"action\":\"dance\"}", 10));
   TEST_ASSERT_EQUAL_UINT32(1, transport.sent.size());
   TEST_ASSERT_EQUAL_STRING("bad_message", codeOf(transport.sent[0].frame).c_str());
-  TEST_ASSERT_FALSE(transport.link.calibrating());
+  TEST_ASSERT_FALSE(transport.link.recalibrating());
 }
 
 void test_a_device_side_recalibration_runs_with_no_session(void) {
@@ -655,17 +663,33 @@ void test_a_device_side_recalibration_runs_with_no_session(void) {
   transport.sent.clear();
 
   transport.link.startRecalibration(0);
-  TEST_ASSERT_TRUE(transport.link.calibrating());
+  TEST_ASSERT_TRUE(transport.link.recalibrating());
   // No Session to tell, so nothing is sent.
   TEST_ASSERT_EQUAL_UINT32(0, transport.sent.size());
 
   // The time failsafe finishes it even with no samples.
   transport.link.tick(1499);
-  TEST_ASSERT_TRUE(transport.link.calibrating());
+  TEST_ASSERT_TRUE(transport.link.recalibrating());
   transport.link.tick(1500);
-  TEST_ASSERT_FALSE(transport.link.calibrating());
-  TEST_ASSERT_TRUE(transport.link.calibrationPhase() ==
-                     classifier::Calibration::Phase::Failed);
+  TEST_ASSERT_FALSE(transport.link.recalibrating());
+  TEST_ASSERT_TRUE(transport.link.recalibrationPhase() ==
+                     classifier::Recalibration::Phase::Failed);
+}
+
+void test_a_recalibration_with_no_samples_reports_no_signal(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+  transport.sent.clear();
+
+  transport.link.onFrame(1, "{\"t\":\"cal\",\"action\":\"recalibrate\"}", 0);
+  transport.sent.clear();
+  // The window elapses with no samples: a dead sensor, not a movement.
+  transport.link.tick(1500);
+  TEST_ASSERT_TRUE(transport.sent.size() >= 1);
+  TEST_ASSERT_EQUAL_STRING("failed", phaseOf(transport.sent[0].frame).c_str());
+  TEST_ASSERT_EQUAL_STRING("no signal", reasonOf(transport.sent[0].frame).c_str());
 }
 
 int main() {
@@ -700,5 +724,6 @@ int main() {
   RUN_TEST(test_a_noisy_recalibration_reports_failed_without_emitting_evt);
   RUN_TEST(test_recalibrate_with_an_unknown_action_is_refused);
   RUN_TEST(test_a_device_side_recalibration_runs_with_no_session);
+  RUN_TEST(test_a_recalibration_with_no_samples_reports_no_signal);
   return UNITY_END();
 }

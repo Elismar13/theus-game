@@ -64,11 +64,11 @@ export interface Link {
   sendCfg(set: Partial<Thresholds>): void
   /** Switch the Device between play and raw debug mode. */
   sendMode(mode: 'play' | 'raw'): void
-  /** Ask the Device to re-zero the Baseline. */
+  /** Ask the Device to Recalibrate the Baseline. */
   sendCal(): void
   readonly status: LinkStatus
-  /** True between `cal started` and `cal done`/`failed`: freeze Run input. */
-  readonly calibrating: boolean
+  /** True between the request and `cal done`/`failed`: freeze Run input. */
+  readonly recalibrating: boolean
 }
 
 export function createLink(options: LinkOptions): Link {
@@ -83,7 +83,7 @@ export function createLink(options: LinkOptions): Link {
   let lastStateMs = 0
   let outboundSeq = 0
   let inboundSeq = 0
-  let calibrating = false
+  let recalibrating = false
 
   function setStatus(next: LinkStatus): void {
     if (next === status) return
@@ -121,7 +121,7 @@ export function createLink(options: LinkOptions): Link {
       inboundSeq = 0
       lastInboundMs = now()
       lastStateMs = 0
-      calibrating = false
+      recalibrating = false
       setStatus('down')
       send(encode(pageHello(options.app, PROTOCOL_VERSION)))
       // The protocol asks for an immediate `state` on reconnect.
@@ -131,7 +131,7 @@ export function createLink(options: LinkOptions): Link {
     onClose(): void {
       open = false
       peerHelloSeen = false
-      calibrating = false
+      recalibrating = false
       setStatus('down')
     },
 
@@ -150,7 +150,7 @@ export function createLink(options: LinkOptions): Link {
       if (message.t === 'hb') lastInboundMs = now()
 
       // A Recalibration freezes Run input for its duration (docs/protocol.md).
-      if (message.t === 'cal') calibrating = message.phase === 'started'
+      if (message.t === 'cal') recalibrating = message.phase === 'started'
 
       if (message.t === 'hello' && message.v === PROTOCOL_VERSION) {
         peerHelloSeen = true
@@ -175,6 +175,10 @@ export function createLink(options: LinkOptions): Link {
     },
 
     sendCal(): void {
+      if (!open) return
+      // Freeze before the request lands: the Device starts the capture on
+      // receipt, so the input must be dead for the whole round trip.
+      recalibrating = true
       send(encode(pageCal()))
     },
 
@@ -182,8 +186,8 @@ export function createLink(options: LinkOptions): Link {
       return status
     },
 
-    get calibrating(): boolean {
-      return calibrating
+    get recalibrating(): boolean {
+      return recalibrating
     },
   }
 }

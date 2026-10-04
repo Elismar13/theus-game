@@ -64,14 +64,14 @@ void LinkServer::begin(StatusBoard& board) {
   Link::Config config;
   config.fw = kFirmwareVersion;
   config.dev = deviceId_;
-  config.caps = "\"cfg\",\"raw\"";
+  config.caps = "\"cal\",\"cfg\",\"raw\"";
   config.thresholds = settings_.thresholds();
   link_.begin(config, &LinkServer::sendFrame, &LinkServer::closeClient, this,
               &LinkServer::saveThresholds);
   // The page owns Run State; the Device mirrors it onto the Status Board (#7).
   link_.setStateHandler(&LinkServer::onState);
   // The board shows the Recalibration screen and READY when it lands (#12).
-  link_.setCalibrationHandler(&LinkServer::onCalibration);
+  link_.setRecalibrationHandler(&LinkServer::onRecalibration);
 
   socket_.begin();
   socket_.onEvent([this](uint8_t clientId, WStype_t type, uint8_t* payload, size_t length) {
@@ -127,12 +127,20 @@ void LinkServer::closeClient(void* context, uint8_t clientId) {
 
 void LinkServer::onState(void* context, const protocol::Object& state) {
   auto* self = static_cast<LinkServer*>(context);
-  // During a Recalibration the panel belongs to the calibration screen; a
-  // `state` frame must not paint over it.
-  if (self->link_.calibrating()) {
+  // Keep the mirror fresh through a capture so the read-out is current when it
+  // ends, but leave the painting to the recalibration screen.
+  const uint32_t changed = readout::apply(self->readout_, state);
+  if (self->link_.recalibrating()) {
     return;
   }
-  const uint32_t changed = readout::apply(self->readout_, state);
+  if (self->recalibrationScreen_) {
+    // First frame after a capture: restore the whole panel, not just one band.
+    self->recalibrationScreen_ = false;
+    if (self->board_ != nullptr) {
+      self->board_->repaint(self->readout_, self->link_.up());
+    }
+    return;
+  }
   // Only the fields that moved are repainted, so a Score tick leaves the rest
   // of the panel alone.
   if (changed != 0 && self->board_ != nullptr) {
@@ -140,21 +148,24 @@ void LinkServer::onState(void* context, const protocol::Object& state) {
   }
 }
 
-void LinkServer::onCalibration(void* context, classifier::Calibration::Phase phase) {
+void LinkServer::onRecalibration(void* context, classifier::Recalibration::Phase phase) {
   auto* self = static_cast<LinkServer*>(context);
   if (self->board_ == nullptr) {
     return;
   }
   switch (phase) {
-    case classifier::Calibration::Phase::Capturing:
-    case classifier::Calibration::Phase::Failed:
-      self->board_->showCalibration(phase);
+    case classifier::Recalibration::Phase::Capturing:
+    case classifier::Recalibration::Phase::Failed:
+      self->board_->showRecalibration(phase);
+      self->recalibrationScreen_ = true;
       break;
-    case classifier::Calibration::Phase::Done:
+    case classifier::Recalibration::Phase::Done:
       // Restore the read-out; at boot its Run State is READY.
       self->board_->repaint(self->readout_, self->link_.up());
+      self->recalibrationScreen_ = false;
       break;
-    case classifier::Calibration::Phase::Idle:
+    case classifier::Recalibration::Phase::Idle:
+      self->recalibrationScreen_ = false;
       break;
   }
 }

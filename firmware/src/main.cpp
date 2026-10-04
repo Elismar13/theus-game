@@ -37,7 +37,7 @@ void handleEvent(Button::Event event) {
       Serial.printf("double-click -> mute %s\n", buzzer.muted() ? "on" : "off");
       break;
     case Button::Event::LongPress:
-      // Re-zero the Baseline without touching a keyboard.
+      // Recalibrate the Baseline without touching a keyboard.
       buzzer.play(sounds::Sound::Recalibration);
       linkServer.startRecalibration(millis());
       Serial.println("long-press -> recalibrate");
