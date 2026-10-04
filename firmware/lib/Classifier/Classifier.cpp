@@ -88,4 +88,56 @@ const char* intentName(Intent intent) {
   return "";
 }
 
+void Calibration::start(uint32_t nowMs) {
+  phase_ = Phase::Capturing;
+  startMs_ = nowMs;
+  samples_ = 0;
+  pitchSum_ = 0.0f;
+  pitchMin_ = 0.0f;
+  pitchMax_ = 0.0f;
+}
+
+bool Calibration::addSample(const signals::Sample& sample, uint32_t nowMs) {
+  if (!active()) {
+    return false;
+  }
+  const float pitch = signals::derive(sample).pitch;
+  if (samples_ == 0) {
+    pitchMin_ = pitch;
+    pitchMax_ = pitch;
+  } else if (pitch < pitchMin_) {
+    pitchMin_ = pitch;
+  } else if (pitch > pitchMax_) {
+    pitchMax_ = pitch;
+  }
+  pitchSum_ += pitch;
+  ++samples_;
+
+  if (nowMs - startMs_ >= config_.windowMs) {
+    return finish();
+  }
+  return false;
+}
+
+bool Calibration::tick(uint32_t nowMs) {
+  if (!active() || nowMs - startMs_ < config_.windowMs) {
+    return false;
+  }
+  return finish();
+}
+
+bool Calibration::finish() {
+  // Trustworthy only if the player held still: enough samples, and the pitch
+  // never wandered further than the tolerated spread.
+  const bool trusted = samples_ >= config_.minSamples &&
+                       (pitchMax_ - pitchMin_) <= config_.maxSpreadDeg;
+  if (trusted) {
+    baseline_.pitch = pitchSum_ / static_cast<float>(samples_);
+    phase_ = Phase::Done;
+  } else {
+    phase_ = Phase::Failed;
+  }
+  return true;
+}
+
 }  // namespace classifier
