@@ -32,6 +32,8 @@ class Link {
   // Reports one in-order `state` message, already parsed. The Link does not
   // interpret Run State itself; the mirror decides what it means (#7).
   using StateFn = void (*)(void* context, const protocol::Object& state);
+  // Reports a Recalibration phase change (started, done, failed).
+  using CalFn = void (*)(void* context, classifier::Calibration::Phase phase);
 
   struct Config {
     const char* fw = "0.0.0";
@@ -53,6 +55,18 @@ class Link {
 
   // Registers the `state` sink. Optional: a bench Link without a mirror is fine.
   void setStateHandler(StateFn handler) { stateFn_ = handler; }
+
+  // Registers the Recalibration sink. Optional, like the `state` sink.
+  void setCalibrationHandler(CalFn handler) { calFn_ = handler; }
+
+  // Starts a Recalibration from the Device side (boot or button long-press).
+  // Ignored while one is already in flight.
+  void startRecalibration(uint32_t nowMs);
+
+  // True while a Recalibration is capturing: the Edge Classifier is frozen and
+  // no `evt` may be emitted.
+  bool calibrating() const { return calibration_.active(); }
+  classifier::Calibration::Phase calibrationPhase() const { return calibration_.phase(); }
 
   // Periodic service: emits the heartbeat and watches for silence.
   void tick(uint32_t nowMs);
@@ -95,6 +109,11 @@ class Link {
   void sendCfg(uint8_t clientId);
   void sendEvent(classifier::Intent intent, uint32_t nowMs);
   void sendError(uint8_t clientId, const char* code, const char* message);
+  void sendCal(const char* phase, const char* reason = nullptr);
+  // Applies the captured Baseline (or keeps the old one) and reports the phase.
+  void finishCalibration();
+  // Emits one `raw` frame if raw mode is on and its interval has elapsed.
+  void maybeSendRaw(const signals::Sample& sample, uint32_t nowMs);
   // Validates a `cfg.set` patch and writes the merged result to `out`. Returns
   // false when any present field is mistyped or out of range.
   bool applyPatch(const protocol::Object& patch, thresholds::Values& out) const;
@@ -105,6 +124,7 @@ class Link {
   CloseFn close_ = nullptr;
   SaveFn save_ = nullptr;
   StateFn stateFn_ = nullptr;
+  CalFn calFn_ = nullptr;
   void* context_ = nullptr;
 
   int16_t session_ = -1;
@@ -119,4 +139,5 @@ class Link {
   int batteryMv_ = 0;
   classifier::State classifierState_{};
   classifier::Baseline baseline_{};
+  classifier::Calibration calibration_;
 };

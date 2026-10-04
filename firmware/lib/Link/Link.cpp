@@ -31,6 +31,7 @@ void Link::begin(const Config& config, SendFn send, CloseFn close, void* context
   outboundSeq_ = 0;
   inboundSeq_ = 0;
   classifierState_ = classifier::State{};
+  calibration_ = classifier::Calibration{};
 }
 
 void Link::onClientConnected(uint8_t clientId, uint32_t nowMs) {
@@ -73,6 +74,11 @@ void Link::onClientDisconnected(uint8_t clientId) {
 }
 
 void Link::tick(uint32_t nowMs) {
+  // The time failsafe runs even with no Session: a capture must not hang.
+  if (calibration_.active() && calibration_.tick(nowMs)) {
+    finishCalibration();
+  }
+
   if (session_ < 0) {
     return;
   }
@@ -85,6 +91,19 @@ void Link::tick(uint32_t nowMs) {
   if (up_ && nowMs - lastInboundMs_ >=
                  static_cast<uint32_t>(config_.hbIntervalMs) * config_.missedHeartbeats) {
     up_ = false;
+  }
+}
+
+void Link::startRecalibration(uint32_t nowMs) {
+  if (calibration_.active()) {
+    return;
+  }
+  // Freeze the Edge Classifier: no gesture may straddle the capture.
+  classifierState_ = classifier::State{};
+  calibration_.start(nowMs);
+  sendCal("started");
+  if (calFn_ != nullptr) {
+    calFn_(context_, calibration_.phase());
   }
 }
 
@@ -157,7 +176,13 @@ bool Link::onFrame(uint8_t clientId, const char* frame, uint32_t nowMs) {
   }
 
   if (strcmp(type, "cal") == 0) {
-    // Recalibration arrives with #12.
+    char action[16];
+    if (!protocol::getString(object, "action", action, sizeof(action)) ||
+        strcmp(action, "recalibrate") != 0) {
+      sendError(clientId, "bad_message", "unknown cal action");
+      return false;
+    }
+    startRecalibration(nowMs);
     return true;
   }
 
@@ -248,6 +273,16 @@ bool Link::applyPatch(const protocol::Object& patch, thresholds::Values& out) co
 }
 
 void Link::onSample(const signals::Sample& sample, uint32_t nowMs) {
+  if (calibration_.active()) {
+    // A capture owns the samples: the Edge Classifier is frozen so no `evt` can
+    // fire from the motion of settling, but the raw stream still runs.
+    if (calibration_.addSample(sample, nowMs)) {
+      finishCalibration();
+    }
+    maybeSendRaw(sample, nowMs);
+    return;
+  }
+
   if (!up_ || session_ < 0 || send_ == nullptr) {
     return;
   }
@@ -261,7 +296,11 @@ void Link::onSample(const signals::Sample& sample, uint32_t nowMs) {
     sendEvent(intent, nowMs);
   }
 
-  if (!rawMode_) {
+  maybeSendRaw(sample, nowMs);
+}
+
+void Link::maybeSendRaw(const signals::Sample& sample, uint32_t nowMs) {
+  if (!up_ || !rawMode_ || session_ < 0 || send_ == nullptr) {
     return;
   }
   if (lastRawMs_ != 0 && nowMs - lastRawMs_ < kRawIntervalMs) {
@@ -293,6 +332,39 @@ void Link::onSample(const signals::Sample& sample, uint32_t nowMs) {
   writer.number(static_cast<double>(derived.vert));
   writer.key("ts");
   writer.number(static_cast<long>(nowMs));
+  writer.objectEnd();
+  if (writer.ok()) {
+    send_(context_, static_cast<uint8_t>(session_), buffer);
+  }
+}
+
+void Link::finishCalibration() {
+  if (calibration_.phase() == classifier::Calibration::Phase::Done) {
+    baseline_ = calibration_.baseline();
+    sendCal("done");
+  } else {
+    sendCal("failed", "too noisy");
+  }
+  if (calFn_ != nullptr) {
+    calFn_(context_, calibration_.phase());
+  }
+}
+
+void Link::sendCal(const char* phase, const char* reason) {
+  if (send_ == nullptr || session_ < 0) {
+    return;
+  }
+  char buffer[96];
+  protocol::Writer writer(buffer, sizeof(buffer));
+  writer.objectStart();
+  writer.key("t");
+  writer.string("cal");
+  writer.key("phase");
+  writer.string(phase);
+  if (reason != nullptr) {
+    writer.key("reason");
+    writer.string(reason);
+  }
   writer.objectEnd();
   if (writer.ok()) {
     send_(context_, static_cast<uint8_t>(session_), buffer);
