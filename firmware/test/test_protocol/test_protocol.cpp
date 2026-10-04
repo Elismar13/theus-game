@@ -142,6 +142,21 @@ void test_writer_matches_the_golden_frames(void) {
   TEST_ASSERT_TRUE(hbWriter.ok());
   TEST_ASSERT_EQUAL_STRING(lines[1].c_str(), heartbeat);
 
+  char events[96];
+  protocol::Writer eventWriter(events, sizeof(events));
+  eventWriter.objectStart();
+  eventWriter.key("t");
+  eventWriter.string("evt");
+  eventWriter.key("e");
+  eventWriter.string("JUMP");
+  eventWriter.key("ts");
+  eventWriter.number(1000L);
+  eventWriter.key("seq");
+  eventWriter.number(3L);
+  eventWriter.objectEnd();
+  TEST_ASSERT_TRUE(eventWriter.ok());
+  TEST_ASSERT_EQUAL_STRING(lines[9].c_str(), events);
+
   char cfg[160];
   protocol::Writer cfgWriter(cfg, sizeof(cfg));
   cfgWriter.objectStart();

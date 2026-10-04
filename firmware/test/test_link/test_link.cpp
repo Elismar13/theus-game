@@ -1,4 +1,5 @@
 #include <cstring>
+#include <math.h>
 #include <string>
 #include <unity.h>
 #include <vector>
@@ -62,6 +63,30 @@ signals::Sample stillSample() {
   sample.gy = 0.1f;
   sample.gz = -0.2f;
   return sample;
+}
+
+/** A sample that derives to the given torso pitch (deg) and vertical accel (g). */
+signals::Sample sampleAt(float pitchDeg, float vert) {
+  const float kRad = 3.14159265358979323846f / 180.0f;
+  signals::Sample sample;
+  sample.ax = 0.0f;
+  sample.ay = vert;
+  sample.az = vert * tanf(pitchDeg * kRad);
+  sample.gx = 0.0f;
+  sample.gy = 0.0f;
+  sample.gz = 0.0f;
+  return sample;
+}
+
+/** The `e` field of an `evt` frame. */
+std::string eventNameOf(const std::string& frame) {
+  protocol::Object object;
+  protocol::parse(frame.c_str(), object);
+  char name[16];
+  if (!protocol::getString(object, "e", name, sizeof(name))) {
+    return "";
+  }
+  return name;
 }
 
 /** Every frame starts `{"t":"..."`; the tests only need the type. */
@@ -405,10 +430,116 @@ void test_state_reaches_the_mirror_and_stale_seq_is_dropped(void) {
   TEST_ASSERT_EQUAL_INT(130, transport.stateScores[1]);
 }
 
+void test_a_jump_sample_emits_evt(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+  transport.sent.clear();
+
+  transport.link.onSample(stillSample(), 100);
+  transport.link.onSample(sampleAt(0.0f, 1.9f), 110);
+
+  TEST_ASSERT_EQUAL_UINT32(1, transport.sent.size());
+  TEST_ASSERT_EQUAL_STRING("evt", typeOf(transport.sent[0].frame).c_str());
+  TEST_ASSERT_EQUAL_STRING("JUMP", eventNameOf(transport.sent[0].frame).c_str());
+
+  protocol::Object event;
+  TEST_ASSERT_TRUE(protocol::parse(transport.sent[0].frame.c_str(), event));
+  long ts = 0;
+  TEST_ASSERT_TRUE(protocol::getInt(event, "ts", ts));
+  TEST_ASSERT_EQUAL_INT(110, ts);
+  long seq = 0;
+  TEST_ASSERT_TRUE(protocol::getInt(event, "seq", seq));
+  TEST_ASSERT_TRUE(seq > 0);
+}
+
+void test_a_crouch_sequence_emits_crawl_then_up(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+  transport.sent.clear();
+
+  for (uint32_t t = 0; t <= 200; t += 10) {
+    transport.link.onSample(sampleAt(50.0f, 0.64f), t);
+  }
+  for (uint32_t t = 210; t <= 260; t += 10) {
+    transport.link.onSample(stillSample(), t);
+  }
+
+  TEST_ASSERT_EQUAL_UINT32(2, transport.sent.size());
+  TEST_ASSERT_EQUAL_STRING("evt", typeOf(transport.sent[0].frame).c_str());
+  TEST_ASSERT_EQUAL_STRING("CRAWL", eventNameOf(transport.sent[0].frame).c_str());
+  TEST_ASSERT_EQUAL_STRING("evt", typeOf(transport.sent[1].frame).c_str());
+  TEST_ASSERT_EQUAL_STRING("UP", eventNameOf(transport.sent[1].frame).c_str());
+}
+
+void test_no_evt_before_the_link_is_up(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.onClientConnected(1, 0);
+  // No peer `hello` yet, so the Link is not up.
+  transport.sent.clear();
+
+  transport.link.onSample(sampleAt(0.0f, 1.9f), 100);
+
+  TEST_ASSERT_EQUAL_UINT32(0, transport.sent.size());
+}
+
+void test_evt_is_emitted_in_raw_mode_too(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+  transport.link.onFrame(1, "{\"t\":\"mode\",\"m\":\"raw\"}", 5);
+  transport.sent.clear();
+
+  transport.link.onSample(sampleAt(0.0f, 1.9f), 100);
+
+  // The same sample yields both the Intent and the debug frame.
+  TEST_ASSERT_EQUAL_UINT32(2, transport.sent.size());
+  size_t events = 0;
+  for (const Sent& sent : transport.sent) {
+    if (typeOf(sent.frame) == "evt") {
+      ++events;
+      TEST_ASSERT_EQUAL_STRING("JUMP", eventNameOf(sent.frame).c_str());
+    }
+  }
+  TEST_ASSERT_EQUAL_UINT32(1, events);
+}
+
+void test_reconnect_discards_an_in_flight_crouch(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+
+  // Commit a Crawl, then drop the Link while still crouched.
+  for (uint32_t t = 0; t <= 200; t += 10) {
+    transport.link.onSample(sampleAt(50.0f, 0.64f), t);
+  }
+  TEST_ASSERT_EQUAL_STRING("CRAWL", eventNameOf(transport.sent.back().frame).c_str());
+  transport.link.onClientDisconnected(1);
+
+  // A fresh Session: standing up must not emit a phantom Up.
+  transport.link.onClientConnected(2, 1000);
+  transport.heardHello(2, 1000);
+  transport.sent.clear();
+  transport.link.onSample(stillSample(), 1010);
+
+  TEST_ASSERT_EQUAL_UINT32(0, transport.sent.size());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_hello_opens_the_session_and_carries_the_thresholds);
   RUN_TEST(test_state_reaches_the_mirror_and_stale_seq_is_dropped);
+  RUN_TEST(test_a_jump_sample_emits_evt);
+  RUN_TEST(test_a_crouch_sequence_emits_crawl_then_up);
+  RUN_TEST(test_no_evt_before_the_link_is_up);
+  RUN_TEST(test_evt_is_emitted_in_raw_mode_too);
+  RUN_TEST(test_reconnect_discards_an_in_flight_crouch);
   RUN_TEST(test_link_comes_up_on_the_peer_hello);
   RUN_TEST(test_link_goes_down_after_three_missed_heartbeats);
   RUN_TEST(test_heartbeat_is_sent_every_second_with_a_rising_seq);

@@ -30,6 +30,7 @@ void Link::begin(const Config& config, SendFn send, CloseFn close, void* context
   lastRawMs_ = 0;
   outboundSeq_ = 0;
   inboundSeq_ = 0;
+  classifierState_ = classifier::State{};
 }
 
 void Link::onClientConnected(uint8_t clientId, uint32_t nowMs) {
@@ -52,6 +53,8 @@ void Link::onClientConnected(uint8_t clientId, uint32_t nowMs) {
   lastInboundMs_ = nowMs;
   lastHeartbeatMs_ = nowMs;
   lastRawMs_ = 0;
+  // A new Session starts with no half-finished gesture from the old one.
+  classifierState_ = classifier::State{};
 
   sendHello(clientId);
   // The protocol asks the Device to send its live Thresholds on connect.
@@ -65,6 +68,8 @@ void Link::onClientDisconnected(uint8_t clientId) {
   session_ = -1;
   up_ = false;
   peerHelloSeen_ = false;
+  // Discard any in-flight gesture: no `evt` may straddle a disconnect.
+  classifierState_ = classifier::State{};
 }
 
 void Link::tick(uint32_t nowMs) {
@@ -242,7 +247,20 @@ bool Link::applyPatch(const protocol::Object& patch, thresholds::Values& out) co
 }
 
 void Link::onSample(const signals::Sample& sample, uint32_t nowMs) {
-  if (!up_ || !rawMode_ || session_ < 0 || send_ == nullptr) {
+  if (!up_ || session_ < 0 || send_ == nullptr) {
+    return;
+  }
+
+  // The Edge Classifier runs on every sample, whatever the debug mode, so an
+  // Intent is never missed and raw mode can watch signal and detection together
+  // (ADR-0002).
+  const classifier::Intent intent =
+      classifier::step(classifierState_, sample, baseline_, thresholds_, nowMs);
+  if (intent != classifier::Intent::None) {
+    sendEvent(intent, nowMs);
+  }
+
+  if (!rawMode_) {
     return;
   }
   if (lastRawMs_ != 0 && nowMs - lastRawMs_ < kRawIntervalMs) {
@@ -348,6 +366,27 @@ void Link::sendCfg(uint8_t clientId) {
   writer.objectEnd();
   if (writer.ok()) {
     send_(context_, clientId, buffer);
+  }
+}
+
+void Link::sendEvent(classifier::Intent intent, uint32_t nowMs) {
+  if (send_ == nullptr || session_ < 0) {
+    return;
+  }
+  char buffer[96];
+  protocol::Writer writer(buffer, sizeof(buffer));
+  writer.objectStart();
+  writer.key("t");
+  writer.string("evt");
+  writer.key("e");
+  writer.string(classifier::intentName(intent));
+  writer.key("ts");
+  writer.number(static_cast<long>(nowMs));
+  writer.key("seq");
+  writer.number(static_cast<long>(++outboundSeq_));
+  writer.objectEnd();
+  if (writer.ok()) {
+    send_(context_, static_cast<uint8_t>(session_), buffer);
   }
 }
 

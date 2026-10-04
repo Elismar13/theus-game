@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "Classifier.h"
 #include "Signals.h"
 #include "Thresholds.h"
 
@@ -64,8 +65,9 @@ class Link {
   // from the Session.
   bool onFrame(uint8_t clientId, const char* frame, uint32_t nowMs);
 
-  // One Sensor Module reading. In raw mode this emits a `raw` frame at about
-  // 50 Hz; outside raw mode it is ignored.
+  // One Sensor Module reading. Runs the Edge Classifier and, when the Link is
+  // up, emits an `evt` for each Intent. In raw mode it also emits a `raw` frame
+  // at about 50 Hz (ADR-0002).
   void onSample(const signals::Sample& sample, uint32_t nowMs);
 
   bool up() const { return up_; }
@@ -79,6 +81,11 @@ class Link {
 
   const thresholds::Values& thresholds() const { return thresholds_; }
 
+  // The neutral posture the Edge Classifier measures Crawl against. A
+  // Recalibration replaces it (#12); it is neutral until then and never
+  // persisted.
+  void setBaseline(const classifier::Baseline& baseline) { baseline_ = baseline; }
+
   // Battery voltage for `hb` telemetry; 0 until the sense is wired (#9).
   void setBatteryMillivolts(int millivolts) { batteryMv_ = millivolts; }
 
@@ -86,6 +93,7 @@ class Link {
   void sendHello(uint8_t clientId);
   void sendHeartbeat(uint32_t nowMs);
   void sendCfg(uint8_t clientId);
+  void sendEvent(classifier::Intent intent, uint32_t nowMs);
   void sendError(uint8_t clientId, const char* code, const char* message);
   // Validates a `cfg.set` patch and writes the merged result to `out`. Returns
   // false when any present field is mistyped or out of range.
@@ -109,4 +117,6 @@ class Link {
   uint32_t outboundSeq_ = 0;
   uint32_t inboundSeq_ = 0;
   int batteryMv_ = 0;
+  classifier::State classifierState_{};
+  classifier::Baseline baseline_{};
 };
