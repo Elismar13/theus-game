@@ -171,7 +171,7 @@ void test_heartbeat_is_sent_every_second_with_a_rising_seq(void) {
       transport.sent[1].frame.c_str());
 }
 
-void test_unknown_message_is_refused_with_an_error(void) {
+void test_unknown_message_is_refused_without_closing_the_link(void) {
   Transport transport;
   transport.begin();
   transport.link.onClientConnected(1, 0);
@@ -189,6 +189,24 @@ void test_unknown_message_is_refused_with_an_error(void) {
   TEST_ASSERT_TRUE(transport.link.up());
   TEST_ASSERT_EQUAL_INT(1, transport.link.session());
   TEST_ASSERT_TRUE(transport.link.onFrame(1, "{\"t\":\"state\",\"score\":1,\"seq\":1}", 11));
+}
+
+void test_a_dropped_stale_frame_does_not_count_as_liveness(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+
+  // Accept seq 5, so anything at or below it is stale.
+  TEST_ASSERT_TRUE(transport.link.onFrame(
+      1, "{\"t\":\"state\",\"score\":5,\"seq\":5}", 0));
+  // A stale frame at 2000 is dropped, and must not refresh liveness.
+  TEST_ASSERT_FALSE(transport.link.onFrame(
+      1, "{\"t\":\"state\",\"score\":4,\"seq\":4}", 2000));
+
+  // The last accepted frame was at 0, so three missed heartbeats trips Down.
+  transport.link.tick(3001);
+  TEST_ASSERT_FALSE(transport.link.up());
 }
 
 void test_protocol_version_mismatch_closes_the_client(void) {
@@ -550,7 +568,8 @@ int main() {
   RUN_TEST(test_link_comes_up_on_the_peer_hello);
   RUN_TEST(test_link_goes_down_after_three_missed_heartbeats);
   RUN_TEST(test_heartbeat_is_sent_every_second_with_a_rising_seq);
-  RUN_TEST(test_unknown_message_is_refused_with_an_error);
+  RUN_TEST(test_unknown_message_is_refused_without_closing_the_link);
+  RUN_TEST(test_a_dropped_stale_frame_does_not_count_as_liveness);
   RUN_TEST(test_protocol_version_mismatch_closes_the_client);
   RUN_TEST(test_a_second_client_takes_over_the_session);
   RUN_TEST(test_stale_seq_is_dropped);

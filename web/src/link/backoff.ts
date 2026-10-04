@@ -2,8 +2,8 @@ export const MIN_BACKOFF_MS = 250
 export const MAX_BACKOFF_MS = 5000
 
 export interface Backoff {
-  /** The delay for this attempt, then advance toward the cap. */
-  next(): number
+  /** The delay for the next attempt, then advance toward the cap. */
+  nextDelay(): number
   /** Back to the first delay after a successful connection. */
   reset(): void
 }
@@ -16,7 +16,7 @@ export interface Backoff {
 export function createBackoff(): Backoff {
   let current = MIN_BACKOFF_MS
   return {
-    next(): number {
+    nextDelay(): number {
       const delay = current
       current = Math.min(current * 2, MAX_BACKOFF_MS)
       return delay

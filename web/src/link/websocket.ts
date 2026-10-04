@@ -21,7 +21,7 @@ export function connectLink(url: string, handlers: SocketHandlers): LinkSocket {
 
   function schedule(): void {
     if (stopped) return
-    timer = window.setTimeout(open, backoff.next())
+    timer = window.setTimeout(open, backoff.nextDelay())
   }
 
   function open(): void {

@@ -111,11 +111,10 @@ bool Link::onFrame(uint8_t clientId, const char* frame, uint32_t nowMs) {
     return false;
   }
 
-  lastInboundMs_ = nowMs;
-
-  // `seq` is per sender and starts at 1; anything at or below the last accepted
-  // value is a stale frame from before a reconnect. Only messages that carry a
-  // `seq` are filtered; `hello`, `cal`, `cfg` and `mode` do not.
+  // A frame only counts as liveness once it is accepted. A stale or repeated
+  // `seq` is a frame from before a reconnect; dropping it must also mean it
+  // cannot hold the Link up. Only messages that carry a `seq` are filtered;
+  // `hello`, `cal`, `cfg` and `mode` do not.
   long seq = 0;
   if (protocol::getInt(object, "seq", seq)) {
     if (seq <= 0 || static_cast<uint32_t>(seq) <= inboundSeq_) {
@@ -123,6 +122,8 @@ bool Link::onFrame(uint8_t clientId, const char* frame, uint32_t nowMs) {
     }
     inboundSeq_ = static_cast<uint32_t>(seq);
   }
+
+  lastInboundMs_ = nowMs;
 
   if (strcmp(type, "hello") == 0) {
     long version = 0;
