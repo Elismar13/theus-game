@@ -8,6 +8,7 @@
 #include "Readout.h"
 #include "Settings.h"
 
+class Buzzer;
 class StatusBoard;
 
 // Binds the Link to the hardware: a WiFi SoftAP that also serves the game page
@@ -19,7 +20,7 @@ class LinkServer {
   static constexpr uint16_t kHttpPort = 80;
   static constexpr uint16_t kSocketPort = 81;
 
-  void begin(StatusBoard& board);
+  void begin(StatusBoard& board, Buzzer& buzzer);
   void loop();
 
   // One Sensor Module reading, forwarded to the Link's raw stream.
@@ -29,6 +30,9 @@ class LinkServer {
 
   // Starts a Recalibration from the Device side (boot or button long-press).
   void startRecalibration(uint32_t nowMs);
+
+  // Asks the page to begin a new Run (button click, #14).
+  void restartRun();
 
   bool linkUp() const { return link_.up(); }
 
@@ -42,6 +46,7 @@ class LinkServer {
   static void saveThresholds(void* context, const thresholds::Values& values);
   static void onState(void* context, const protocol::Object& state);
   static void onRecalibration(void* context, classifier::Recalibration::Phase phase);
+  static void onIntent(void* context, classifier::Intent intent);
 
   void onSocketEvent(uint8_t clientId, WStype_t type, uint8_t* payload, size_t length);
   bool serveFile(const String& path);
@@ -51,6 +56,7 @@ class LinkServer {
   Link link_;
   Settings settings_;
   StatusBoard* board_ = nullptr;
+  Buzzer* buzzer_ = nullptr;
   readout::State readout_;
   bool shownLinkUp_ = false;
   // True while the panel is showing a recalibration screen, so the next `state`

@@ -145,7 +145,8 @@ canvas#dev-plot {
   color: #f4a259;
 }
 
-.recalibrate {
+.recalibrate,
+.restart {
   font: inherit;
   font-size: 12px;
   letter-spacing: 0.08em;

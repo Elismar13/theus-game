@@ -293,6 +293,11 @@ void Link::onSample(const signals::Sample& sample, uint32_t nowMs) {
   const classifier::Intent intent =
       classifier::step(classifierState_, sample, baseline_, thresholds_, nowMs);
   if (intent != classifier::Intent::None) {
+    // The Device answers its own Intent first (the buzzer), so the cue is not
+    // held up by the Link.
+    if (intentFn_ != nullptr) {
+      intentFn_(context_, intent);
+    }
     sendEvent(intent, nowMs);
   }
 
@@ -351,6 +356,23 @@ void Link::finishRecalibration() {
   }
   if (calFn_ != nullptr) {
     calFn_(context_, recalibration_.phase());
+  }
+}
+
+void Link::sendRestart() {
+  if (send_ == nullptr || session_ < 0) {
+    return;
+  }
+  char buffer[64];
+  protocol::Writer writer(buffer, sizeof(buffer));
+  writer.objectStart();
+  writer.key("t");
+  writer.string("cmd");
+  writer.key("action");
+  writer.string("restart");
+  writer.objectEnd();
+  if (writer.ok()) {
+    send_(context_, static_cast<uint8_t>(session_), buffer);
   }
 }
 

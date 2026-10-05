@@ -126,6 +126,11 @@ describe('device-to-page codec', () => {
       reason: 'too noisy',
     })
   })
+
+  it('reads a Device restart command, and ignores an unknown action', () => {
+    expect(decode('{"t":"cmd","action":"restart"}')).toEqual({ t: 'cmd', action: 'restart' })
+    expect(decode('{"t":"cmd","action":"pause"}')).toBeNull()
+  })
 })
 
 describe('page-to-device codec', () => {

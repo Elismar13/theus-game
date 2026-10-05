@@ -7,6 +7,13 @@ import { createKeyboard } from './input/keyboard'
 import { createLink, type Link } from './link/link'
 import { connectLink } from './link/websocket'
 import { draw } from './render/render'
+import {
+  applyIntent,
+  bindingInput,
+  initialBinding,
+  releaseJump,
+  type IntentBinding,
+} from './session/intents'
 
 const STEP_MS = 1000 / 60
 const RESTART_GRACE_MS = 750
@@ -73,6 +80,11 @@ if (recalibrateEl instanceof HTMLButtonElement) {
   recalibrateEl.addEventListener('click', () => link?.sendCal())
 }
 
+const restartEl = document.getElementById('restart')
+if (restartEl instanceof HTMLButtonElement) {
+  restartEl.addEventListener('click', () => restart())
+}
+
 // The Dev Panel is optional: the game must run even if its markup is absent.
 const devEl = document.getElementById('dev')
 const devPanel =
@@ -111,6 +123,10 @@ let accumulator = 0
 let previous = performance.now()
 let diedAt: number | null = null
 
+// The Device's Intents as they are currently held. Recalibration clears them, so
+// nothing resumes stuck when the capture ends.
+let intentBinding: IntentBinding = initialBinding()
+
 // The Link runs beside the game: it mirrors Run State to the Device and reports
 // the Link state on the page. Playing from the keyboard works with no Device.
 let link: Link | null = null
@@ -131,12 +147,27 @@ link = createLink({
   }),
   onStatus: (status) => {
     showLink(status)
-    // A dropped Link abandons any Recalibration in flight; unfreeze.
-    if (status === 'down') showRecalibration(null)
+    // A dropped Link abandons any Recalibration in flight, and any held Intent
+    // with it: the Device is no longer there to send the release.
+    if (status === 'down') {
+      showRecalibration(null)
+      intentBinding = initialBinding()
+    }
   },
   onMessage: (message) => {
     devPanel?.handle(message)
-    if (message.t === 'cal') showRecalibration(message.phase)
+    if (message.t === 'evt') {
+      intentBinding = applyIntent(intentBinding, message.e)
+    }
+    if (message.t === 'cal') {
+      // A capture resets the classifier, so hold nothing across it: a latched
+      // Crawl must not resume when `cal done` lands.
+      if (message.phase === 'started') intentBinding = initialBinding()
+      showRecalibration(message.phase)
+    }
+    if (message.t === 'cmd') {
+      restart()
+    }
   },
 })
 showLink('down')
@@ -146,6 +177,8 @@ function restart(): void {
   state = initial(seed, state.highScore)
   diedAt = null
   accumulator = 0
+  // A new Run starts from neutral, never from a latch the last one was holding.
+  intentBinding = initialBinding()
 }
 
 function frame(now: number): void {
@@ -169,12 +202,22 @@ function frame(now: number): void {
 
   // A fixed timestep keeps the simulation independent of the display rate.
   // A Recalibration freezes Run input so no phantom Jump can cost a Heart.
-  const liveInput = keyboard.input()
+  const keyed = keyboard.input()
+  const linked = bindingInput(intentBinding)
+  const liveInput: Input = {
+    jump: keyed.jump || linked.jump,
+    crawl: keyed.crawl || linked.crawl,
+  }
   const input: Input = link?.recalibrating ? FROZEN_INPUT : liveInput
+  let stepped = false
   while (accumulator >= STEP_MS) {
     state = step(state, input, STEP_MS)
     accumulator -= STEP_MS
+    stepped = true
   }
+  // Release the Device's Jump latch only after a step has consumed it: a
+  // grounded frame with no step must not clear it before take-off.
+  if (stepped) intentBinding = releaseJump(intentBinding, state.grounded)
 
   link?.tick()
   draw(ctx, state)

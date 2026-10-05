@@ -4,6 +4,8 @@
 #include <LittleFS.h>
 #include <WiFi.h>
 
+#include "Buzzer.h"
+#include "Feedback.h"
 #include "StatusBoard.h"
 #include "Protocol.h"
 
@@ -30,8 +32,9 @@ const char* contentTypeFor(const String& path) {
 
 }  // namespace
 
-void LinkServer::begin(StatusBoard& board) {
+void LinkServer::begin(StatusBoard& board, Buzzer& buzzer) {
   board_ = &board;
+  buzzer_ = &buzzer;
   settings_.begin();
 
   if (!LittleFS.begin(true)) {
@@ -72,6 +75,8 @@ void LinkServer::begin(StatusBoard& board) {
   link_.setStateHandler(&LinkServer::onState);
   // The board shows the Recalibration screen and READY when it lands (#12).
   link_.setRecalibrationHandler(&LinkServer::onRecalibration);
+  // The buzzer answers each Intent at the Device (#14).
+  link_.setIntentHandler(&LinkServer::onIntent);
 
   socket_.begin();
   socket_.onEvent([this](uint8_t clientId, WStype_t type, uint8_t* payload, size_t length) {
@@ -117,6 +122,10 @@ void LinkServer::startRecalibration(uint32_t nowMs) {
   link_.startRecalibration(nowMs);
 }
 
+void LinkServer::restartRun() {
+  link_.sendRestart();
+}
+
 void LinkServer::saveThresholds(void* context, const thresholds::Values& values) {
   static_cast<LinkServer*>(context)->settings_.save(values);
 }
@@ -129,7 +138,19 @@ void LinkServer::onState(void* context, const protocol::Object& state) {
   auto* self = static_cast<LinkServer*>(context);
   // Keep the mirror fresh through a capture so the read-out is current when it
   // ends, but leave the painting to the recalibration screen.
+  const readout::State before = self->readout_;
   const uint32_t changed = readout::apply(self->readout_, state);
+
+  // Cue the buzzer off what the Run did: a lost Heart, or the end of the Run.
+  if (self->buzzer_ != nullptr) {
+    const feedback::Reaction reaction = feedback::forState(before, self->readout_);
+    if (reaction == feedback::Reaction::GameOver) {
+      self->buzzer_->play(sounds::Sound::GameOver);
+    } else if (reaction == feedback::Reaction::HeartLoss) {
+      self->buzzer_->play(sounds::Sound::HeartLoss);
+    }
+  }
+
   if (self->link_.recalibrating()) {
     return;
   }
@@ -145,6 +166,13 @@ void LinkServer::onState(void* context, const protocol::Object& state) {
   // of the panel alone.
   if (changed != 0 && self->board_ != nullptr) {
     self->board_->render(self->readout_, changed);
+  }
+}
+
+void LinkServer::onIntent(void* context, classifier::Intent intent) {
+  auto* self = static_cast<LinkServer*>(context);
+  if (self->buzzer_ != nullptr && intent == classifier::Intent::Jump) {
+    self->buzzer_->play(sounds::Sound::Jump);
   }
 }
 

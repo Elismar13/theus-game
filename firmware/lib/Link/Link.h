@@ -34,6 +34,9 @@ class Link {
   using StateFn = void (*)(void* context, const protocol::Object& state);
   // Reports a Recalibration phase change (started, done, failed).
   using CalFn = void (*)(void* context, classifier::Recalibration::Phase phase);
+  // Reports each Intent the Edge Classifier emits, so the Device can answer it
+  // without a second listener on the sample stream (#14).
+  using IntentFn = void (*)(void* context, classifier::Intent intent);
 
   struct Config {
     const char* fw = "0.0.0";
@@ -58,6 +61,14 @@ class Link {
 
   // Registers the Recalibration sink. Optional, like the `state` sink.
   void setRecalibrationHandler(CalFn handler) { calFn_ = handler; }
+
+  // Registers the Intent sink. Optional: a bench Link can emit without one.
+  void setIntentHandler(IntentFn handler) { intentFn_ = handler; }
+
+  // Asks the page to begin a new Run, for a control the player pressed on the
+  // Device (the button). The page owns Run State, so this is a `cmd` (#14).
+  // A no-op with no Session bound.
+  void sendRestart();
 
   // Starts a Recalibration from the Device side (boot or button long-press).
   // Ignored while one is already in flight.
@@ -125,6 +136,7 @@ class Link {
   SaveFn save_ = nullptr;
   StateFn stateFn_ = nullptr;
   CalFn calFn_ = nullptr;
+  IntentFn intentFn_ = nullptr;
   void* context_ = nullptr;
 
   int16_t session_ = -1;

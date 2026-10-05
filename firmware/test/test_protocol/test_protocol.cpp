@@ -108,7 +108,7 @@ void test_rejects_malformed_objects(void) {
 
 void test_writer_matches_the_golden_frames(void) {
   const std::vector<std::string> lines = fixtureLines("protocol.device-to-page.ndjson");
-  TEST_ASSERT_TRUE_MESSAGE(lines.size() >= 14, "device-to-page fixture is missing");
+  TEST_ASSERT_TRUE_MESSAGE(lines.size() >= 15, "device-to-page fixture is missing");
 
   char hello[192];
   protocol::Writer helloWriter(hello, sizeof(hello));
@@ -202,6 +202,17 @@ void test_writer_matches_the_golden_frames(void) {
   rawWriter.objectEnd();
   TEST_ASSERT_TRUE(rawWriter.ok());
   TEST_ASSERT_EQUAL_STRING(lines[13].c_str(), raw);
+
+  char command[64];
+  protocol::Writer commandWriter(command, sizeof(command));
+  commandWriter.objectStart();
+  commandWriter.key("t");
+  commandWriter.string("cmd");
+  commandWriter.key("action");
+  commandWriter.string("restart");
+  commandWriter.objectEnd();
+  TEST_ASSERT_TRUE(commandWriter.ok());
+  TEST_ASSERT_EQUAL_STRING(lines[14].c_str(), command);
 }
 
 void test_reads_a_cfg_patch_verbatim(void) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DeviceMessage } from '../protocol'
-import { createLink, type LinkSocket, type LinkStatus } from './link'
+import { createLink, type LinkSnapshot, type LinkSocket, type LinkStatus } from './link'
 
 /** The page's own outbound frames, read back as plain JSON. */
 function sentMessage(text: string | undefined): unknown {
@@ -16,12 +16,13 @@ function harness() {
   const statuses: LinkStatus[] = []
   const messages: DeviceMessage[] = []
   let clock = 0
+  let snapshot: LinkSnapshot = { score: 42, hi: 99, hearts: 2, maxHearts: 3, run: 'RUN' }
 
   const link = createLink({
     socket,
     app: 'theus-web',
     now: () => clock,
-    snapshot: () => ({ score: 42, hi: 99, hearts: 2, maxHearts: 3, run: 'RUN' }),
+    snapshot: () => snapshot,
     onStatus: (status) => statuses.push(status),
     onMessage: (message) => messages.push(message),
   })
@@ -31,6 +32,9 @@ function harness() {
     sent,
     statuses,
     messages,
+    setSnapshot: (next: LinkSnapshot): void => {
+      snapshot = next
+    },
     advance: (ms: number): void => {
       clock += ms
     },
@@ -121,6 +125,46 @@ describe('Liveness', () => {
     expect(sentMessage(sent[0])).toMatchObject({ t: 'state', seq: 2 })
 
     advance(500)
+    link.tick()
+    expect(sent).toHaveLength(1)
+  })
+
+  it('sends state at once when the Run State or Hearts change', () => {
+    const { link, sent, setSnapshot, advance } = harness()
+    link.onOpen()
+    sent.length = 0
+
+    // A death must not wait out the heartbeat, or a restart inside the grace
+    // window would replace it before the Status Board ever saw it.
+    advance(100)
+    setSnapshot({ score: 42, hi: 99, hearts: 0, maxHearts: 3, run: 'DEAD' })
+    link.tick()
+
+    expect(sent).toHaveLength(1)
+    expect(sentMessage(sent[0])).toEqual({
+      t: 'state',
+      score: 42,
+      hi: 99,
+      hearts: 0,
+      max_hearts: 3,
+      run: 'DEAD',
+      seq: 2,
+    })
+  })
+
+  it('lets a Score or High Score tick ride the heartbeat', () => {
+    const { link, sent, setSnapshot, advance } = harness()
+    link.onOpen()
+    sent.length = 0
+
+    // A record run raises `hi` with `score` every frame; neither may flood the
+    // Link with state messages.
+    advance(100)
+    setSnapshot({ score: 43, hi: 120, hearts: 2, maxHearts: 3, run: 'RUN' })
+    link.tick()
+    expect(sent).toHaveLength(0)
+
+    advance(1000)
     link.tick()
     expect(sent).toHaveLength(1)
   })

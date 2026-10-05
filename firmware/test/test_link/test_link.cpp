@@ -23,6 +23,8 @@ struct Transport {
   std::vector<long> stateScores;
   /** The Recalibration phases the Link reported, in order. */
   std::vector<classifier::Recalibration::Phase> calPhases;
+  /** The Intents the Link reported to the Device's own listener, in order. */
+  std::vector<classifier::Intent> intents;
 
   static bool onSend(void* context, uint8_t client, const char* frame) {
     static_cast<Transport*>(context)->sent.push_back({client, frame});
@@ -45,6 +47,10 @@ struct Transport {
 
   static void onCal(void* context, classifier::Recalibration::Phase phase) {
     static_cast<Transport*>(context)->calPhases.push_back(phase);
+  }
+
+  static void onIntent(void* context, classifier::Intent intent) {
+    static_cast<Transport*>(context)->intents.push_back(intent);
   }
 
   void begin() {
@@ -692,6 +698,56 @@ void test_a_recalibration_with_no_samples_reports_no_signal(void) {
   TEST_ASSERT_EQUAL_STRING("no signal", reasonOf(transport.sent[0].frame).c_str());
 }
 
+void test_each_intent_reaches_the_device_listener(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.setIntentHandler(Transport::onIntent);
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+
+  transport.link.onSample(sampleAt(0.0f, 1.9f), 0);
+  for (uint32_t t = 10; t <= 210; t += 10) {
+    transport.link.onSample(sampleAt(50.0f, 0.64f), t);
+  }
+  for (uint32_t t = 220; t <= 270; t += 10) {
+    transport.link.onSample(stillSample(), t);
+  }
+
+  TEST_ASSERT_EQUAL_UINT32(3, transport.intents.size());
+  TEST_ASSERT_TRUE(transport.intents[0] == classifier::Intent::Jump);
+  TEST_ASSERT_TRUE(transport.intents[1] == classifier::Intent::Crawl);
+  TEST_ASSERT_TRUE(transport.intents[2] == classifier::Intent::Up);
+}
+
+void test_no_intent_is_reported_before_the_link_is_up(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.setIntentHandler(Transport::onIntent);
+  transport.link.onClientConnected(1, 0);
+  transport.link.onSample(sampleAt(0.0f, 1.9f), 0);
+
+  TEST_ASSERT_EQUAL_UINT32(0, transport.intents.size());
+}
+
+void test_restart_is_sent_to_the_session(void) {
+  Transport transport;
+  transport.begin();
+  transport.sent.clear();
+
+  // No Session bound: the command is dropped rather than sent nowhere.
+  transport.link.sendRestart();
+  TEST_ASSERT_EQUAL_UINT32(0, transport.sent.size());
+
+  transport.link.onClientConnected(1, 0);
+  transport.sent.clear();
+  transport.link.sendRestart();
+
+  TEST_ASSERT_EQUAL_UINT32(1, transport.sent.size());
+  TEST_ASSERT_EQUAL_UINT8(1, transport.sent[0].client);
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"cmd\",\"action\":\"restart\"}",
+                           transport.sent[0].frame.c_str());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_hello_opens_the_session_and_carries_the_thresholds);
@@ -725,5 +781,8 @@ int main() {
   RUN_TEST(test_recalibrate_with_an_unknown_action_is_refused);
   RUN_TEST(test_a_device_side_recalibration_runs_with_no_session);
   RUN_TEST(test_a_recalibration_with_no_samples_reports_no_signal);
+  RUN_TEST(test_each_intent_reaches_the_device_listener);
+  RUN_TEST(test_no_intent_is_reported_before_the_link_is_up);
+  RUN_TEST(test_restart_is_sent_to_the_session);
   return UNITY_END();
 }
