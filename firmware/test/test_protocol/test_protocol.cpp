@@ -108,7 +108,7 @@ void test_rejects_malformed_objects(void) {
 
 void test_writer_matches_the_golden_frames(void) {
   const std::vector<std::string> lines = fixtureLines("protocol.device-to-page.ndjson");
-  TEST_ASSERT_TRUE_MESSAGE(lines.size() >= 14, "device-to-page fixture is missing");
+  TEST_ASSERT_TRUE_MESSAGE(lines.size() >= 15, "device-to-page fixture is missing");
 
   char hello[192];
   protocol::Writer helloWriter(hello, sizeof(hello));
@@ -122,7 +122,7 @@ void test_writer_matches_the_golden_frames(void) {
   helloWriter.key("dev");
   helloWriter.string("AABBCC");
   helloWriter.key("caps");
-  helloWriter.raw("[\"cfg\",\"raw\"]");
+  helloWriter.raw("[\"cal\",\"cfg\",\"raw\"]");
   helloWriter.objectEnd();
   TEST_ASSERT_TRUE(helloWriter.ok());
   TEST_ASSERT_EQUAL_STRING(lines[0].c_str(), hello);
@@ -202,6 +202,17 @@ void test_writer_matches_the_golden_frames(void) {
   rawWriter.objectEnd();
   TEST_ASSERT_TRUE(rawWriter.ok());
   TEST_ASSERT_EQUAL_STRING(lines[13].c_str(), raw);
+
+  char command[64];
+  protocol::Writer commandWriter(command, sizeof(command));
+  commandWriter.objectStart();
+  commandWriter.key("t");
+  commandWriter.string("cmd");
+  commandWriter.key("action");
+  commandWriter.string("restart");
+  commandWriter.objectEnd();
+  TEST_ASSERT_TRUE(commandWriter.ok());
+  TEST_ASSERT_EQUAL_STRING(lines[14].c_str(), command);
 }
 
 void test_reads_a_cfg_patch_verbatim(void) {
@@ -229,6 +240,52 @@ void test_writer_reports_overflow(void) {
   TEST_ASSERT_FALSE(writer.ok());
 }
 
+void test_parses_a_full_cfg_patch(void) {
+  // Every Threshold at once, including the longest key, `jump_refractory_ms`.
+  protocol::Object object;
+  TEST_ASSERT_TRUE(protocol::parse(
+      "{\"t\":\"cfg\",\"set\":{\"jump_g\":1.6,\"crawl_deg\":45,"
+      "\"crawl_hold_ms\":150,\"jump_refractory_ms\":250}}",
+      object));
+
+  char type[24];
+  TEST_ASSERT_TRUE(protocol::getString(object, "t", type, sizeof(type)));
+  TEST_ASSERT_EQUAL_STRING("cfg", type);
+
+  protocol::Object patch;
+  TEST_ASSERT_TRUE(protocol::parse(object.find("set"), patch));
+  double jumpG = 0;
+  double crawlDeg = 0;
+  long holdMs = 0;
+  long refractoryMs = 0;
+  TEST_ASSERT_TRUE(protocol::getNumber(patch, "jump_g", jumpG));
+  TEST_ASSERT_TRUE(protocol::getNumber(patch, "crawl_deg", crawlDeg));
+  TEST_ASSERT_TRUE(protocol::getInt(patch, "crawl_hold_ms", holdMs));
+  TEST_ASSERT_TRUE(protocol::getInt(patch, "jump_refractory_ms", refractoryMs));
+  TEST_ASSERT_FLOAT_WITHIN(0.001, 1.6, jumpG);
+  TEST_ASSERT_FLOAT_WITHIN(0.001, 45.0, crawlDeg);
+  TEST_ASSERT_EQUAL_INT(150, holdMs);
+  TEST_ASSERT_EQUAL_INT(250, refractoryMs);
+}
+
+void test_every_documented_key_fits_the_parser(void) {
+  // A key longer than kMaxKeyLength makes parse() reject the whole object, so
+  // the constant must cover every key in docs/protocol.md (#22).
+  const char* keys[] = {
+      "t",          "v",           "fw",          "dev",        "caps",
+      "up_ms",      "batt_mv",     "rssi",        "seq",        "code",
+      "msg",        "phase",       "reason",      "action",     "e",
+      "ts",         "conf",        "jump_g",      "crawl_deg",  "crawl_hold_ms",
+      "jump_refractory_ms",        "ax",          "ay",         "az",
+      "gx",         "gy",          "gz",          "pitch",      "vert",
+      "app",        "score",       "hi",          "hearts",     "max_hearts",
+      "run",        "set",         "m",
+  };
+  for (const char* key : keys) {
+    TEST_ASSERT_TRUE_MESSAGE(strlen(key) < protocol::kMaxKeyLength, key);
+  }
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_parses_every_page_to_device_fixture);
@@ -238,5 +295,7 @@ int main() {
   RUN_TEST(test_writer_matches_the_golden_frames);
   RUN_TEST(test_reads_a_cfg_patch_verbatim);
   RUN_TEST(test_writer_reports_overflow);
+  RUN_TEST(test_parses_a_full_cfg_patch);
+  RUN_TEST(test_every_documented_key_fits_the_parser);
   return UNITY_END();
 }

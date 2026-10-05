@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
 
+#include "Classifier.h"
 #include "Readout.h"
 
 // The panel on the Device that shows the state of a Run (CONTEXT.md: Status
@@ -15,8 +16,8 @@
 // tick does not flash the whole panel.
 class StatusBoard {
  public:
-  // Native geometry in portrait orientation, matching the 0.96" 80x160 panel.
-  static constexpr int16_t kWidth = 80;
+  // Native geometry in portrait orientation, matching the 1.8" 128x160 panel.
+  static constexpr int16_t kWidth = 128;
   static constexpr int16_t kHeight = 160;
 
   // The backlight is dimmable in eight steps above off: level 0 is off, and
@@ -46,6 +47,11 @@ class StatusBoard {
   // was drawn before. Used after the panel self-test, which paints over
   // everything and would otherwise leave its proof behind.
   void repaint(const readout::State& state, bool linkUp);
+
+  // Takes over the panel for a Recalibration: `CALIBRATING`/`STAND STILL` while
+  // capturing, `CALIBRATION`/`FAILED` on a bad capture. Done and Idle paint
+  // nothing; the caller repaints the read-out (whose Run State is READY at boot).
+  void showRecalibration(classifier::Recalibration::Phase phase);
 
  private:
   void drawScore(int score);

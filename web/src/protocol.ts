@@ -59,6 +59,15 @@ export interface CalMessage {
   readonly reason?: string
 }
 
+/**
+ * A Device-initiated Run control. The page owns Run State, so the button's
+ * restart is a command rather than a direct state change (#14).
+ */
+export interface CmdMessage {
+  readonly t: 'cmd'
+  readonly action: 'restart'
+}
+
 /** The four tunable Thresholds, shared by the `cfg` message and its editor. */
 export interface Thresholds {
   readonly jump_g: number
@@ -98,6 +107,7 @@ export type DeviceMessage =
   | HbMessage
   | ErrMessage
   | CalMessage
+  | CmdMessage
   | CfgMessage
   | EvtMessage
   | RawMessage
@@ -235,6 +245,11 @@ export function decode(text: string): DeviceMessage | null {
       }
       return null
     }
+    case 'cmd':
+      if (parsed.action === 'restart') {
+        return { t: 'cmd', action: 'restart' }
+      }
+      return null
     case 'cfg':
       if (
         number(parsed.jump_g) &&

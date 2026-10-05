@@ -24,20 +24,23 @@ LinkServer linkServer;
 bool sensorReady = false;
 uint32_t lastSampleMs = 0;
 
-// The button's job in the finished Device is Recalibration (long press) and
-// mute (double-click); its other bindings arrive with the integration ticket.
-// Here it only proves the events and toggles mute.
+// The Device's half of play: a long press Recalibrates, and a click begins a new
+// Run on the page (#14). Double-click mutes.
 void handleEvent(Button::Event event) {
   switch (event) {
     case Button::Event::Click:
-      Serial.println("click");
+      linkServer.restartRun();
+      Serial.println("click -> restart");
       break;
     case Button::Event::DoubleClick:
       buzzer.toggleMute();
       Serial.printf("double-click -> mute %s\n", buzzer.muted() ? "on" : "off");
       break;
     case Button::Event::LongPress:
-      Serial.println("long-press");
+      // Recalibrate the Baseline without touching a keyboard.
+      buzzer.play(sounds::Sound::Recalibration);
+      linkServer.startRecalibration(millis());
+      Serial.println("long-press -> recalibrate");
       break;
     case Button::Event::None:
       break;
@@ -61,6 +64,7 @@ void handleSerialCommand() {
       break;
     case 'r':
       buzzer.play(sounds::Sound::Recalibration);
+      linkServer.startRecalibration(millis());
       break;
     case 'b':
       buzzer.play(sounds::Sound::LowBattery);
@@ -101,10 +105,16 @@ void setup() {
 
   // The access point and the Link come up before the panel self-test, so the
   // page can connect while the bench proof runs.
-  linkServer.begin(statusBoard);
+  linkServer.begin(statusBoard, buzzer);
   statusBoard.selfTest();
   // The self-test leaves its own proof on the panel; restore the read-out.
   linkServer.refreshBoard();
+
+  // With the bench proof cleared, auto-calibrate: the player holds still, the
+  // panel says CALIBRATING, and it settles on READY.
+  if (sensorReady) {
+    linkServer.startRecalibration(millis());
+  }
 
   printHelp();
 }

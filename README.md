@@ -41,7 +41,7 @@ theus-game/
 
 ## Hardware
 
-An ESP32-WROOM-32D devkit, a BMI160 on I2C, a 0.96" 80×160 ST7735S IPS panel on SPI, a momentary button, a passive buzzer, and a protected 1S LiPo behind a charger and a 5 V boost. Full pin map, power topology, and panel notes: [`docs/hardware.md`](docs/hardware.md).
+An ESP32-WROOM-32D devkit, a BMI160 on I2C, a 1.8" 128×160 ST7735S panel on SPI, a momentary button, a passive buzzer, and a protected 1S LiPo behind a charger and a 5 V boost. Full pin map, power topology, and panel notes: [`docs/hardware.md`](docs/hardware.md).
 
 ## Building and flashing
 

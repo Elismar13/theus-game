@@ -14,7 +14,7 @@ constexpr uint8_t kBacklightResolutionBits = 8;  // duty 0..255
 constexpr uint32_t kBacklightDutyMax = (1u << kBacklightResolutionBits) - 1;
 
 // Fixed regions in portrait orientation. Each value owns one band, so a change
-// repaints that band alone. They tile the 80x160 window without overlapping.
+// repaints that band alone. They tile the 128x160 window without overlapping.
 struct Region {
   int16_t y;
   int16_t height;
@@ -29,28 +29,29 @@ constexpr Region kRunRegion = {122, 36};
 constexpr int16_t kLabelX = StatusBoard::kWidth / 2;
 
 // The slot row is driven by max_hearts; a Run starts with all of them full.
-// The panel is 80 px wide, so a hand's worth of slots is all that fits.
+// A hand's worth of slots is all the Read-out carries; the wider panel just
+// gives each slot more room.
 constexpr int kMaxHeartSlots = 5;
-constexpr int kHeartSlotWidth = 12;
-constexpr int kHeartSlotGap = 4;
+constexpr int kHeartSlotWidth = 16;
+constexpr int kHeartSlotGap = 8;
 
 // A full Heart slot. The panel has no glyph for it, so it is two lobes over a
 // point. `full` fills it red; otherwise the outline is left as an empty slot.
 void drawHeart(TFT_eSPI& panel, int16_t x, int16_t y, bool full) {
-  const int16_t lobe = 3;
+  const int16_t lobe = 4;
   const int16_t left = x + lobe;
   const int16_t right = x + kHeartSlotWidth - lobe;
-  const int16_t top = y + 4;
+  const int16_t top = y + 5;
   if (full) {
     panel.fillCircle(left, top, lobe, TFT_RED);
     panel.fillCircle(right, top, lobe, TFT_RED);
     panel.fillTriangle(x, top + 1, x + kHeartSlotWidth, top + 1, x + kHeartSlotWidth / 2,
-                       y + 12, TFT_RED);
+                       y + 16, TFT_RED);
   } else {
     panel.drawCircle(left, top, lobe, TFT_DARKGREY);
     panel.drawCircle(right, top, lobe, TFT_DARKGREY);
     panel.drawTriangle(x, top + 1, x + kHeartSlotWidth, top + 1, x + kHeartSlotWidth / 2,
-                       y + 12, TFT_DARKGREY);
+                       y + 16, TFT_DARKGREY);
   }
 }
 
@@ -68,6 +69,17 @@ void drawValue(TFT_eSPI& panel, const Region& region, const char* label,
   panel.drawString(value, kLabelX, region.y + 12);
 }
 
+// Two centred lines for the full-panel messages (Recalibration). The longest is
+// 11 characters, comfortably within the 128 px width at text size 1.
+void drawCentredMessage(TFT_eSPI& panel, const char* top, const char* bottom,
+                        uint16_t color) {
+  panel.setTextDatum(MC_DATUM);
+  panel.setTextColor(color, TFT_BLACK);
+  panel.setTextSize(1);
+  panel.drawString(top, StatusBoard::kWidth / 2, StatusBoard::kHeight / 2 - 10);
+  panel.drawString(bottom, StatusBoard::kWidth / 2, StatusBoard::kHeight / 2 + 6);
+}
+
 }  // namespace
 
 void StatusBoard::begin() {
@@ -76,7 +88,7 @@ void StatusBoard::begin() {
   setBrightness(kBrightnessLevelMax);
 
   panel_.init();
-  panel_.setRotation(0);  // portrait, 80x160
+  panel_.setRotation(0);  // portrait, 128x160
   panel_.fillScreen(TFT_BLACK);
 
   linkDrawn_ = false;
@@ -97,6 +109,10 @@ void StatusBoard::selfTest() {
   // edge means the window offset does not match the panel.
   panel_.drawRect(0, 0, kWidth, kHeight, TFT_WHITE);
 
+  // A full-width line at mid-height proves every column is addressable and the
+  // window offset is right; the border alone only checks the extreme rows.
+  panel_.drawFastHLine(0, kHeight / 2, kWidth, TFT_WHITE);
+
   // Corner markers sit flush against the border: if a corner is detached, the
   // window is offset; if red and blue are swapped, the panel is RGB, not BGR.
   constexpr int16_t kMarker = 6;
@@ -112,7 +128,7 @@ void StatusBoard::selfTest() {
   panel_.drawString("THEUS", kWidth / 2, 60);
   panel_.setTextSize(1);
   panel_.drawString("STATUS BOARD", kWidth / 2, 84);
-  panel_.drawString("80x160", kWidth / 2, 96);
+  panel_.drawString("128x160", kWidth / 2, 96);
 
   // Sweep every level so the dimming range is visible by eye, then settle at
   // full brightness.
@@ -163,6 +179,21 @@ void StatusBoard::repaint(const readout::State& state, bool linkUp) {
   linkDrawn_ = false;
   render(state, readout::kAll);
   showLink(linkUp);
+}
+
+void StatusBoard::showRecalibration(classifier::Recalibration::Phase phase) {
+  if (phase != classifier::Recalibration::Phase::Capturing &&
+      phase != classifier::Recalibration::Phase::Failed) {
+    return;
+  }
+  panel_.fillScreen(TFT_BLACK);
+  // The message owns the whole window; force the next Link paint to redraw.
+  linkDrawn_ = false;
+  if (phase == classifier::Recalibration::Phase::Capturing) {
+    drawCentredMessage(panel_, "CALIBRATING", "STAND STILL", TFT_CYAN);
+  } else {
+    drawCentredMessage(panel_, "CALIBRATION", "FAILED", TFT_RED);
+  }
 }
 
 void StatusBoard::drawScore(int score) {

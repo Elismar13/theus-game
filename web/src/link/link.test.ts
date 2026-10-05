@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DeviceMessage } from '../protocol'
-import { createLink, type LinkSocket, type LinkStatus } from './link'
+import { createLink, type LinkSnapshot, type LinkSocket, type LinkStatus } from './link'
 
 /** The page's own outbound frames, read back as plain JSON. */
 function sentMessage(text: string | undefined): unknown {
@@ -16,12 +16,13 @@ function harness() {
   const statuses: LinkStatus[] = []
   const messages: DeviceMessage[] = []
   let clock = 0
+  let snapshot: LinkSnapshot = { score: 42, hi: 99, hearts: 2, maxHearts: 3, run: 'RUN' }
 
   const link = createLink({
     socket,
     app: 'theus-web',
     now: () => clock,
-    snapshot: () => ({ score: 42, hi: 99, hearts: 2, maxHearts: 3, run: 'RUN' }),
+    snapshot: () => snapshot,
     onStatus: (status) => statuses.push(status),
     onMessage: (message) => messages.push(message),
   })
@@ -31,6 +32,9 @@ function harness() {
     sent,
     statuses,
     messages,
+    setSnapshot: (next: LinkSnapshot): void => {
+      snapshot = next
+    },
     advance: (ms: number): void => {
       clock += ms
     },
@@ -124,6 +128,46 @@ describe('Liveness', () => {
     link.tick()
     expect(sent).toHaveLength(1)
   })
+
+  it('sends state at once when the Run State or Hearts change', () => {
+    const { link, sent, setSnapshot, advance } = harness()
+    link.onOpen()
+    sent.length = 0
+
+    // A death must not wait out the heartbeat, or a restart inside the grace
+    // window would replace it before the Status Board ever saw it.
+    advance(100)
+    setSnapshot({ score: 42, hi: 99, hearts: 0, maxHearts: 3, run: 'DEAD' })
+    link.tick()
+
+    expect(sent).toHaveLength(1)
+    expect(sentMessage(sent[0])).toEqual({
+      t: 'state',
+      score: 42,
+      hi: 99,
+      hearts: 0,
+      max_hearts: 3,
+      run: 'DEAD',
+      seq: 2,
+    })
+  })
+
+  it('lets a Score or High Score tick ride the heartbeat', () => {
+    const { link, sent, setSnapshot, advance } = harness()
+    link.onOpen()
+    sent.length = 0
+
+    // A record run raises `hi` with `score` every frame; neither may flood the
+    // Link with state messages.
+    advance(100)
+    setSnapshot({ score: 43, hi: 120, hearts: 2, maxHearts: 3, run: 'RUN' })
+    link.tick()
+    expect(sent).toHaveLength(0)
+
+    advance(1000)
+    link.tick()
+    expect(sent).toHaveLength(1)
+  })
 })
 
 describe('Ordering', () => {
@@ -135,6 +179,15 @@ describe('Ordering', () => {
     link.receive(HB(6))
     expect(messages.map((message) => message.t)).toEqual(['hb', 'hb'])
     expect(messages.map((message) => (message.t === 'hb' ? message.seq : 0))).toEqual([5, 6])
+  })
+
+  it('drops a repeated seq from the Device', () => {
+    const { link, messages } = harness()
+    link.onOpen()
+    link.receive(HB(5))
+    link.receive(HB(5))
+    link.receive(HB(7))
+    expect(messages.map((message) => (message.t === 'hb' ? message.seq : 0))).toEqual([5, 7])
   })
 
   it('ignores malformed and unknown frames', () => {
@@ -185,5 +238,53 @@ describe('Tuning', () => {
       '{"t":"raw","ax":0,"ay":1,"az":0,"gx":0,"gy":0,"gz":0,"pitch":0,"vert":1,"ts":10}',
     )
     expect(messages.map((message) => message.t)).toEqual(['cfg', 'raw'])
+  })
+})
+
+describe('Recalibration', () => {
+  it('freezes immediately on the request and unfreezes when it lands', () => {
+    const { link, sent } = harness()
+    link.onOpen()
+    sent.length = 0
+
+    expect(link.recalibrating).toBe(false)
+    link.sendCal()
+    // Frozen before the Device's echo: input is dead for the whole round trip.
+    expect(link.recalibrating).toBe(true)
+    expect(sentMessage(sent[0])).toEqual({ t: 'cal', action: 'recalibrate' })
+
+    link.receive('{"t":"cal","phase":"started"}')
+    expect(link.recalibrating).toBe(true)
+
+    link.receive('{"t":"cal","phase":"done"}')
+    expect(link.recalibrating).toBe(false)
+  })
+
+  it('unfreezes when the capture fails', () => {
+    const { link } = harness()
+    link.onOpen()
+    link.receive('{"t":"cal","phase":"started"}')
+    expect(link.recalibrating).toBe(true)
+
+    link.receive('{"t":"cal","phase":"failed","reason":"too noisy"}')
+    expect(link.recalibrating).toBe(false)
+  })
+
+  it('resets the freeze when the socket closes', () => {
+    const { link } = harness()
+    link.onOpen()
+    link.receive('{"t":"cal","phase":"started"}')
+    expect(link.recalibrating).toBe(true)
+
+    link.onClose()
+    expect(link.recalibrating).toBe(false)
+  })
+
+  it('drops a recalibrate request while the socket is closed', () => {
+    const { link, sent } = harness()
+    link.sendCal()
+    expect(sent).toHaveLength(0)
+    // A request that never went out must not freeze the game.
+    expect(link.recalibrating).toBe(false)
   })
 })

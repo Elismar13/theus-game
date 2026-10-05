@@ -37,6 +37,7 @@ Version **1**. This is the contract between the Device and the game page. Terms 
 | `hello` | Opens the Session |
 | `evt` | An Intent |
 | `cal` | Recalibration progress |
+| `cmd` | A Run control from the Device |
 | `cfg` | Current Thresholds |
 | `hb` | Heartbeat and device telemetry |
 | `raw` | Debug signal stream |
@@ -66,6 +67,16 @@ Version **1**. This is the contract between the Device and the game page. Terms 
 | --- | --- | --- |
 | `phase` | string | `"started"`, `"done"`, or `"failed"` |
 | `reason` | string | Present when `phase` is `"failed"` |
+
+**`cmd`** — a Run control the Device raises on its own
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `action` | string | `"restart"` |
+
+The page owns Run State, so a control the player triggers on the Device (a button
+click, say) travels as a command rather than as a state change. `restart` asks the
+page to begin a new Run, exactly as its own restart control does (#14).
 
 **`cfg`** — current Thresholds
 

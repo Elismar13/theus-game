@@ -31,23 +31,25 @@ useful as a check. `firmware/data/` is generated and git-ignored.
 
 ## Status Board bring-up
 
-The panel is a 0.96" 80x160 IPS ST7735S. Its TFT_eSPI configuration lives in
+The panel is a 1.8" 128x160 ST7735S. Its TFT_eSPI configuration lives in
 `platformio.ini` (`build_flags`) rather than in the library's `User_Setup.h`, so
 the wiring sits next to the build.
 
 On boot the firmware runs `StatusBoard::selfTest()`:
 
-- a white border is drawn on the physical edges of the 80x160 window,
+- a white border is drawn on the physical edges of the 128x160 window,
+- a full-width line at mid-height proves every column is addressable, not just
+  the extreme rows the border covers,
 - red/green/blue/yellow corner markers sit flush in the corners, so a detached
   corner reveals a window offset and a swapped red/blue reveals an RGB panel
   driven as BGR,
-- `THEUS / STATUS BOARD / 80x160` is drawn at a known, centred position,
+- `THEUS / STATUS BOARD / 128x160` is drawn at a known, centred position,
 - the backlight sweeps through its eight dimmable steps and settles at full.
 
-If the image is offset or clipped, switch the tab define to
-`-DST7735_REDTAB160x80` (24-column offset instead of 26) and add
-`-DTFT_INVERSION_ON`, because only `GREENTAB160x80` inverts on its own. A unit
-marked GC9106 is driven by the ST7735 init in practice.
+The red-PCB module is driven as `ST7735_REDTAB` (no offset, no inversion). If the
+image is offset or clipped, fall back to a green-tab variant (`ST7735_GREENTAB`
+or `ST7735_GREENTAB2` at offset 2,1; `ST7735_GREENTAB3` at 2,3); if the colours
+look inverted, add `-DTFT_INVERSION_ON`.
 
 ## Button and buzzer bring-up
 

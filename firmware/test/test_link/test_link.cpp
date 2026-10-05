@@ -21,6 +21,10 @@ struct Transport {
   std::vector<thresholds::Values> saved;
   /** The Score of each `state` frame the mirror saw, in arrival order. */
   std::vector<long> stateScores;
+  /** The Recalibration phases the Link reported, in order. */
+  std::vector<classifier::Recalibration::Phase> calPhases;
+  /** The Intents the Link reported to the Device's own listener, in order. */
+  std::vector<classifier::Intent> intents;
 
   static bool onSend(void* context, uint8_t client, const char* frame) {
     static_cast<Transport*>(context)->sent.push_back({client, frame});
@@ -41,11 +45,19 @@ struct Transport {
     static_cast<Transport*>(context)->stateScores.push_back(score);
   }
 
+  static void onCal(void* context, classifier::Recalibration::Phase phase) {
+    static_cast<Transport*>(context)->calPhases.push_back(phase);
+  }
+
+  static void onIntent(void* context, classifier::Intent intent) {
+    static_cast<Transport*>(context)->intents.push_back(intent);
+  }
+
   void begin() {
     Link::Config config;
     config.fw = "0.1.0";
     config.dev = "AABBCC";
-    config.caps = "\"cfg\",\"raw\"";
+    config.caps = "\"cal\",\"cfg\",\"raw\"";
     link.begin(config, onSend, onClose, this, onSave);
   }
 
@@ -102,6 +114,20 @@ std::string codeOf(const std::string& frame) {
   return frame.substr(start, end - start);
 }
 
+/** The `phase` field of a `cal` frame. */
+std::string phaseOf(const std::string& frame) {
+  const size_t start = frame.find("\"phase\":\"") + 9;
+  const size_t end = frame.find('"', start);
+  return frame.substr(start, end - start);
+}
+
+/** The `reason` field of a `cal` frame. */
+std::string reasonOf(const std::string& frame) {
+  const size_t start = frame.find("\"reason\":\"") + 10;
+  const size_t end = frame.find('"', start);
+  return frame.substr(start, end - start);
+}
+
 }  // namespace
 
 void test_hello_opens_the_session_and_carries_the_thresholds(void) {
@@ -112,7 +138,7 @@ void test_hello_opens_the_session_and_carries_the_thresholds(void) {
   TEST_ASSERT_EQUAL_UINT32(2, transport.sent.size());
   TEST_ASSERT_EQUAL_UINT8(3, transport.sent[0].client);
   TEST_ASSERT_EQUAL_STRING(
-      "{\"t\":\"hello\",\"v\":1,\"fw\":\"0.1.0\",\"dev\":\"AABBCC\",\"caps\":[\"cfg\",\"raw\"]}",
+      "{\"t\":\"hello\",\"v\":1,\"fw\":\"0.1.0\",\"dev\":\"AABBCC\",\"caps\":[\"cal\",\"cfg\",\"raw\"]}",
       transport.sent[0].frame.c_str());
   TEST_ASSERT_EQUAL_UINT8(3, transport.sent[1].client);
   TEST_ASSERT_EQUAL_STRING(
@@ -171,7 +197,7 @@ void test_heartbeat_is_sent_every_second_with_a_rising_seq(void) {
       transport.sent[1].frame.c_str());
 }
 
-void test_unknown_message_is_refused_with_an_error(void) {
+void test_unknown_message_is_refused_without_closing_the_link(void) {
   Transport transport;
   transport.begin();
   transport.link.onClientConnected(1, 0);
@@ -182,6 +208,31 @@ void test_unknown_message_is_refused_with_an_error(void) {
   TEST_ASSERT_EQUAL_UINT32(1, transport.sent.size());
   TEST_ASSERT_EQUAL_STRING("err", typeOf(transport.sent[0].frame).c_str());
   TEST_ASSERT_EQUAL_STRING("bad_message", codeOf(transport.sent[0].frame).c_str());
+
+  // A bad message must not close the Link: no close callback, the Session is
+  // still bound, and the next well-formed frame is accepted.
+  TEST_ASSERT_EQUAL_UINT32(0, transport.closed.size());
+  TEST_ASSERT_TRUE(transport.link.up());
+  TEST_ASSERT_EQUAL_INT(1, transport.link.session());
+  TEST_ASSERT_TRUE(transport.link.onFrame(1, "{\"t\":\"state\",\"score\":1,\"seq\":1}", 11));
+}
+
+void test_a_dropped_stale_frame_does_not_count_as_liveness(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+
+  // Accept seq 5, so anything at or below it is stale.
+  TEST_ASSERT_TRUE(transport.link.onFrame(
+      1, "{\"t\":\"state\",\"score\":5,\"seq\":5}", 0));
+  // A stale frame at 2000 is dropped, and must not refresh liveness.
+  TEST_ASSERT_FALSE(transport.link.onFrame(
+      1, "{\"t\":\"state\",\"score\":4,\"seq\":4}", 2000));
+
+  // The last accepted frame was at 0, so three missed heartbeats trips Down.
+  transport.link.tick(3001);
+  TEST_ASSERT_FALSE(transport.link.up());
 }
 
 void test_protocol_version_mismatch_closes_the_client(void) {
@@ -531,6 +582,199 @@ void test_reconnect_discards_an_in_flight_crouch(void) {
   TEST_ASSERT_EQUAL_UINT32(0, transport.sent.size());
 }
 
+void test_a_page_recalibration_captures_and_applies_a_baseline(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.setRecalibrationHandler(Transport::onCal);
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+  transport.sent.clear();
+
+  TEST_ASSERT_TRUE(
+      transport.link.onFrame(1, "{\"t\":\"cal\",\"action\":\"recalibrate\"}", 0));
+  TEST_ASSERT_TRUE(transport.link.recalibrating());
+  TEST_ASSERT_EQUAL_UINT32(1, transport.sent.size());
+  TEST_ASSERT_EQUAL_STRING("cal", typeOf(transport.sent[0].frame).c_str());
+  TEST_ASSERT_EQUAL_STRING("started", phaseOf(transport.sent[0].frame).c_str());
+
+  // Stand still at 10 deg for the whole window.
+  for (uint32_t now = 0; now <= 1500; now += 10) {
+    transport.link.onSample(sampleAt(10.0f, 1.0f), now);
+  }
+  TEST_ASSERT_FALSE(transport.link.recalibrating());
+
+  // Only `started` and `done`; no `evt` escaped the capture.
+  TEST_ASSERT_EQUAL_UINT32(2, transport.sent.size());
+  TEST_ASSERT_EQUAL_STRING("done", phaseOf(transport.sent[1].frame).c_str());
+  TEST_ASSERT_EQUAL_STRING("cal", typeOf(transport.sent[1].frame).c_str());
+  TEST_ASSERT_EQUAL_UINT32(2, transport.calPhases.size());
+  TEST_ASSERT_TRUE(transport.calPhases[1] == classifier::Recalibration::Phase::Done);
+
+  // The Baseline is now 10 deg: a 20 deg absolute lean is only 10 deg forward
+  // and does not commit, but a 55 deg absolute crouch is 45 deg forward and does.
+  transport.sent.clear();
+  for (uint32_t now = 2000; now <= 2200; now += 10) {
+    transport.link.onSample(sampleAt(20.0f, 1.0f), now);
+  }
+  TEST_ASSERT_EQUAL_UINT32(0, transport.sent.size());
+  for (uint32_t now = 2210; now <= 2410; now += 10) {
+    transport.link.onSample(sampleAt(55.0f, 1.0f), now);
+  }
+  TEST_ASSERT_TRUE(transport.sent.size() >= 1);
+  TEST_ASSERT_EQUAL_STRING("evt", typeOf(transport.sent[0].frame).c_str());
+  TEST_ASSERT_EQUAL_STRING("CRAWL", eventNameOf(transport.sent[0].frame).c_str());
+}
+
+void test_a_noisy_recalibration_reports_failed_without_emitting_evt(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+  transport.sent.clear();
+
+  transport.link.onFrame(1, "{\"t\":\"cal\",\"action\":\"recalibrate\"}", 0);
+  // A swing that both throws the pitch around and spikes vertical: a Jump would
+  // fire if the classifier were live, but the capture must suppress it.
+  for (uint32_t now = 0; now <= 1500; now += 10) {
+    const bool peak = (now / 10) % 2 == 0;
+    transport.link.onSample(sampleAt(peak ? 40.0f : -40.0f, peak ? 1.0f : 1.9f), now);
+  }
+
+  TEST_ASSERT_FALSE(transport.link.recalibrating());
+  TEST_ASSERT_EQUAL_UINT32(2, transport.sent.size());
+  TEST_ASSERT_EQUAL_STRING("cal", typeOf(transport.sent[0].frame).c_str());
+  TEST_ASSERT_EQUAL_STRING("failed", phaseOf(transport.sent[1].frame).c_str());
+  TEST_ASSERT_EQUAL_STRING("too noisy", reasonOf(transport.sent[1].frame).c_str());
+  for (const Sent& sent : transport.sent) {
+    TEST_ASSERT_EQUAL_STRING("cal", typeOf(sent.frame).c_str());
+  }
+}
+
+void test_recalibrate_with_an_unknown_action_is_refused(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+  transport.sent.clear();
+
+  TEST_ASSERT_FALSE(transport.link.onFrame(1, "{\"t\":\"cal\",\"action\":\"dance\"}", 10));
+  TEST_ASSERT_EQUAL_UINT32(1, transport.sent.size());
+  TEST_ASSERT_EQUAL_STRING("bad_message", codeOf(transport.sent[0].frame).c_str());
+  TEST_ASSERT_FALSE(transport.link.recalibrating());
+}
+
+void test_a_device_side_recalibration_runs_with_no_session(void) {
+  Transport transport;
+  transport.begin();
+  transport.sent.clear();
+
+  transport.link.startRecalibration(0);
+  TEST_ASSERT_TRUE(transport.link.recalibrating());
+  // No Session to tell, so nothing is sent.
+  TEST_ASSERT_EQUAL_UINT32(0, transport.sent.size());
+
+  // The time failsafe finishes it even with no samples.
+  transport.link.tick(1499);
+  TEST_ASSERT_TRUE(transport.link.recalibrating());
+  transport.link.tick(1500);
+  TEST_ASSERT_FALSE(transport.link.recalibrating());
+  TEST_ASSERT_TRUE(transport.link.recalibrationPhase() ==
+                     classifier::Recalibration::Phase::Failed);
+}
+
+void test_a_recalibration_with_no_samples_reports_no_signal(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+  transport.sent.clear();
+
+  transport.link.onFrame(1, "{\"t\":\"cal\",\"action\":\"recalibrate\"}", 0);
+  transport.sent.clear();
+  // The window elapses with no samples: a dead sensor, not a movement.
+  transport.link.tick(1500);
+  TEST_ASSERT_TRUE(transport.sent.size() >= 1);
+  TEST_ASSERT_EQUAL_STRING("failed", phaseOf(transport.sent[0].frame).c_str());
+  TEST_ASSERT_EQUAL_STRING("no signal", reasonOf(transport.sent[0].frame).c_str());
+}
+
+void test_each_intent_reaches_the_device_listener(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.setIntentHandler(Transport::onIntent);
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+
+  transport.link.onSample(sampleAt(0.0f, 1.9f), 0);
+  for (uint32_t t = 10; t <= 210; t += 10) {
+    transport.link.onSample(sampleAt(50.0f, 0.64f), t);
+  }
+  for (uint32_t t = 220; t <= 270; t += 10) {
+    transport.link.onSample(stillSample(), t);
+  }
+
+  TEST_ASSERT_EQUAL_UINT32(3, transport.intents.size());
+  TEST_ASSERT_TRUE(transport.intents[0] == classifier::Intent::Jump);
+  TEST_ASSERT_TRUE(transport.intents[1] == classifier::Intent::Crawl);
+  TEST_ASSERT_TRUE(transport.intents[2] == classifier::Intent::Up);
+}
+
+void test_no_intent_is_reported_before_the_link_is_up(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.setIntentHandler(Transport::onIntent);
+  transport.link.onClientConnected(1, 0);
+  transport.link.onSample(sampleAt(0.0f, 1.9f), 0);
+
+  TEST_ASSERT_EQUAL_UINT32(0, transport.intents.size());
+}
+
+void test_restart_is_sent_to_the_session(void) {
+  Transport transport;
+  transport.begin();
+  transport.sent.clear();
+
+  // No Session bound: the command is dropped rather than sent nowhere.
+  transport.link.sendRestart();
+  TEST_ASSERT_EQUAL_UINT32(0, transport.sent.size());
+
+  transport.link.onClientConnected(1, 0);
+  transport.sent.clear();
+  transport.link.sendRestart();
+
+  TEST_ASSERT_EQUAL_UINT32(1, transport.sent.size());
+  TEST_ASSERT_EQUAL_UINT8(1, transport.sent[0].client);
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"cmd\",\"action\":\"restart\"}",
+                           transport.sent[0].frame.c_str());
+}
+
+void test_a_full_cfg_patch_is_accepted(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+  transport.sent.clear();
+
+  // The dev panel submits all four Thresholds at once (#22).
+  TEST_ASSERT_TRUE(transport.link.onFrame(
+      1,
+      "{\"t\":\"cfg\",\"set\":{\"jump_g\":1.6,\"crawl_deg\":45,"
+      "\"crawl_hold_ms\":150,\"jump_refractory_ms\":250}}",
+      10));
+
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.6f, transport.link.thresholds().jump_g);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 45.0f, transport.link.thresholds().crawl_deg);
+  TEST_ASSERT_EQUAL_INT(150, transport.link.thresholds().crawl_hold_ms);
+  TEST_ASSERT_EQUAL_INT(250, transport.link.thresholds().jump_refractory_ms);
+  TEST_ASSERT_EQUAL_UINT32(1, transport.saved.size());
+  // The fresh `cfg` is the acknowledgement; the connect-time one already took seq 1.
+  TEST_ASSERT_EQUAL_UINT32(1, transport.sent.size());
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"cfg\",\"jump_g\":1.6,\"crawl_deg\":45,\"crawl_hold_ms\":150,"
+      "\"jump_refractory_ms\":250,\"seq\":2}",
+      transport.sent[0].frame.c_str());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_hello_opens_the_session_and_carries_the_thresholds);
@@ -543,7 +787,8 @@ int main() {
   RUN_TEST(test_link_comes_up_on_the_peer_hello);
   RUN_TEST(test_link_goes_down_after_three_missed_heartbeats);
   RUN_TEST(test_heartbeat_is_sent_every_second_with_a_rising_seq);
-  RUN_TEST(test_unknown_message_is_refused_with_an_error);
+  RUN_TEST(test_unknown_message_is_refused_without_closing_the_link);
+  RUN_TEST(test_a_dropped_stale_frame_does_not_count_as_liveness);
   RUN_TEST(test_protocol_version_mismatch_closes_the_client);
   RUN_TEST(test_a_second_client_takes_over_the_session);
   RUN_TEST(test_stale_seq_is_dropped);
@@ -558,5 +803,14 @@ int main() {
   RUN_TEST(test_unknown_threshold_is_rejected);
   RUN_TEST(test_a_misspelled_threshold_rejects_the_whole_patch);
   RUN_TEST(test_missing_cfg_set_is_rejected);
+  RUN_TEST(test_a_page_recalibration_captures_and_applies_a_baseline);
+  RUN_TEST(test_a_noisy_recalibration_reports_failed_without_emitting_evt);
+  RUN_TEST(test_recalibrate_with_an_unknown_action_is_refused);
+  RUN_TEST(test_a_device_side_recalibration_runs_with_no_session);
+  RUN_TEST(test_a_recalibration_with_no_samples_reports_no_signal);
+  RUN_TEST(test_each_intent_reaches_the_device_listener);
+  RUN_TEST(test_no_intent_is_reported_before_the_link_is_up);
+  RUN_TEST(test_restart_is_sent_to_the_session);
+  RUN_TEST(test_a_full_cfg_patch_is_accepted);
   return UNITY_END();
 }

@@ -1,6 +1,7 @@
 import {
   decode,
   encode,
+  pageCal,
   pageCfg,
   pageHello,
   pageMode,
@@ -63,7 +64,11 @@ export interface Link {
   sendCfg(set: Partial<Thresholds>): void
   /** Switch the Device between play and raw debug mode. */
   sendMode(mode: 'play' | 'raw'): void
+  /** Ask the Device to Recalibrate the Baseline. */
+  sendCal(): void
   readonly status: LinkStatus
+  /** True between the request and `cal done`/`failed`: freeze Run input. */
+  readonly recalibrating: boolean
 }
 
 export function createLink(options: LinkOptions): Link {
@@ -78,6 +83,8 @@ export function createLink(options: LinkOptions): Link {
   let lastStateMs = 0
   let outboundSeq = 0
   let inboundSeq = 0
+  let recalibrating = false
+  let lastSent: LinkSnapshot | null = null
 
   function setStatus(next: LinkStatus): void {
     if (next === status) return
@@ -93,6 +100,7 @@ export function createLink(options: LinkOptions): Link {
     outboundSeq += 1
     lastStateMs = now()
     const snapshot = options.snapshot()
+    lastSent = snapshot
     send(
       encode(
         pageState({
@@ -115,6 +123,8 @@ export function createLink(options: LinkOptions): Link {
       inboundSeq = 0
       lastInboundMs = now()
       lastStateMs = 0
+      recalibrating = false
+      lastSent = null
       setStatus('down')
       send(encode(pageHello(options.app, PROTOCOL_VERSION)))
       // The protocol asks for an immediate `state` on reconnect.
@@ -124,6 +134,8 @@ export function createLink(options: LinkOptions): Link {
     onClose(): void {
       open = false
       peerHelloSeen = false
+      recalibrating = false
+      lastSent = null
       setStatus('down')
     },
 
@@ -141,6 +153,9 @@ export function createLink(options: LinkOptions): Link {
       // `raw` in debug mode must not mask a stopped `hb`.
       if (message.t === 'hb') lastInboundMs = now()
 
+      // A Recalibration freezes Run input for its duration (docs/protocol.md).
+      if (message.t === 'cal') recalibrating = message.phase === 'started'
+
       if (message.t === 'hello' && message.v === PROTOCOL_VERSION) {
         peerHelloSeen = true
       }
@@ -152,7 +167,19 @@ export function createLink(options: LinkOptions): Link {
       if (!open) return
       const nowMs = now()
       if (peerHelloSeen && nowMs - lastInboundMs >= timeoutMs) setStatus('down')
-      if (nowMs - lastStateMs >= heartbeatMs) sendState()
+
+      // `docs/protocol.md`: `state` goes out on change, and at least every
+      // 1000 ms. A Run State or Heart change must not wait for the heartbeat, or
+      // a game over can be replaced by a restart before the Status Board ever
+      // sees it. Score and High Score change every frame on a record run, so
+      // they ride the heartbeat.
+      const snapshot = options.snapshot()
+      const needsImmediateState =
+        lastSent !== null &&
+        (snapshot.run !== lastSent.run ||
+          snapshot.hearts !== lastSent.hearts ||
+          snapshot.maxHearts !== lastSent.maxHearts)
+      if (needsImmediateState || nowMs - lastStateMs >= heartbeatMs) sendState()
     },
 
     sendCfg(set: Partial<Thresholds>): void {
@@ -163,8 +190,20 @@ export function createLink(options: LinkOptions): Link {
       send(encode(pageMode(mode)))
     },
 
+    sendCal(): void {
+      if (!open) return
+      // Freeze before the request lands: the Device starts the capture on
+      // receipt, so the input must be dead for the whole round trip.
+      recalibrating = true
+      send(encode(pageCal()))
+    },
+
     get status(): LinkStatus {
       return status
+    },
+
+    get recalibrating(): boolean {
+      return recalibrating
     },
   }
 }
