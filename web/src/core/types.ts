@@ -46,6 +46,12 @@ export interface GameState {
   readonly score: number
   readonly highScore: number
   readonly hearts: number
+  /**
+   * Debug: when true the Run cannot be lost — a hit still flashes and grants
+   * invulnerability, but costs no Heart and never ends the Run. Distinct from
+   * `invulnMs`, which is the brief post-hit grace during normal play.
+   */
+  readonly godMode: boolean
   readonly invulnMs: number
   /** Non-zero briefly after a hit, for the renderer to flash the player. */
   readonly flashMs: number

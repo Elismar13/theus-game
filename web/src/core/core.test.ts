@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { advance, advanceBy, CRAWL, FRAME_MS, IDLE, JUMP } from '../testing/harness'
 import { HIGH_OBSTACLE, PLAYER, TUNING, WORLD } from './constants'
-import { initial, runState, step } from './core'
+import { initial, runState, setGodMode, step } from './core'
 import type { GameState, Obstacle, ObstacleKind } from './types'
 
 /** A Run already on the ground and moving. */
@@ -234,6 +234,63 @@ describe('Hearts and invulnerability', () => {
       while (state.invulnMs > 0 && !state.dead) state = step(state, IDLE, FRAME_MS)
     }
     expect(step(state, JUMP, FRAME_MS)).toBe(state)
+  })
+})
+
+describe('God mode', () => {
+  /** A hit that would normally cost a Heart, on a Run in god mode. */
+  function hitInGodMode(overrides: Partial<GameState> = {}): GameState {
+    return step(
+      withObstacle({ ...running(), godMode: true, ...overrides }, obstacleAt('low', PLAYER.X - 4)),
+      IDLE,
+      FRAME_MS,
+    )
+  }
+
+  it('survives a hit without losing a Heart or dying', () => {
+    const after = hitInGodMode()
+    expect(after.hearts).toBe(TUNING.HEARTS)
+    expect(after.dead).toBe(false)
+    expect(runState(after)).not.toBe('DEAD')
+  })
+
+  it('still flashes and grants invulnerability, so a mistimed Intent is visible', () => {
+    const after = hitInGodMode()
+    expect(after.flashMs).toBeGreaterThan(0)
+    expect(after.invulnMs).toBeGreaterThan(0)
+  })
+
+  it('cannot die on the last Heart', () => {
+    const after = hitInGodMode({ hearts: 1 })
+    expect(after.hearts).toBe(1)
+    expect(after.dead).toBe(false)
+  })
+
+  it('never ends the Run, however long it runs into obstacles', () => {
+    let state: GameState = { ...running(7), godMode: true }
+    for (let i = 0; i < 20_000; i += 1) state = step(state, IDLE, FRAME_MS)
+    expect(state.dead).toBe(false)
+    expect(state.hearts).toBe(TUNING.HEARTS)
+    expect(runState(state)).not.toBe('DEAD')
+  })
+
+  it('is off unless a Run asks for it', () => {
+    expect(initial(1).godMode).toBe(false)
+    expect(initial(1, 0, true).godMode).toBe(true)
+  })
+
+  it('does not bank a High Score from a debug Run', () => {
+    let state: GameState = { ...running(1), godMode: true, highScore: 5 }
+    for (let i = 0; i < 600; i += 1) state = step(state, IDLE, FRAME_MS)
+    // Score still climbs as feedback, but a test Run writes nothing to the record.
+    expect(state.score).toBeGreaterThan(5)
+    expect(state.highScore).toBe(5)
+  })
+
+  it('toggles a live Run', () => {
+    const on = setGodMode(running(7), true)
+    expect(on.godMode).toBe(true)
+    expect(setGodMode(on, false).godMode).toBe(false)
   })
 })
 

@@ -7,6 +7,8 @@ export interface DevPanelOptions {
   readonly onCfg: (set: Partial<Thresholds>) => void
   /** The raw/play switch, ready for `Link.sendMode`. */
   readonly onMode: (mode: 'play' | 'raw') => void
+  /** The debug god mode: a Run that cannot be lost. */
+  readonly onGodMode: (on: boolean) => void
 }
 
 export interface DevPanel {
@@ -43,6 +45,7 @@ export function createDevPanel(options: DevPanelOptions): DevPanel {
   const root = options.root
   const toggle = document.getElementById('dev-toggle')
   const raw = required<HTMLInputElement>(root, '#dev-raw')
+  const god = required<HTMLInputElement>(root, '#dev-god')
   const plotCanvas = required<HTMLCanvasElement>(root, '#dev-plot')
   const readout = required<HTMLElement>(root, '#dev-readout')
   const form = required<HTMLFormElement>(root, '#dev-cfg')
@@ -69,6 +72,10 @@ export function createDevPanel(options: DevPanelOptions): DevPanel {
       buffer.clear()
       draw()
     }
+  })
+
+  god.addEventListener('change', () => {
+    options.onGodMode(god.checked)
   })
 
   form.addEventListener('submit', (event) => {
