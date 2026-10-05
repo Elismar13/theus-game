@@ -8,7 +8,7 @@ The Device is a chest-worn ESP32 console: one inertial sensor, one small panel, 
 | --- | --- | --- |
 | MCU board | ESP32-WROOM-32D devkit | PlatformIO `board = esp32dev`, Arduino framework |
 | Sensor | BMI160 | Accelerometer + gyroscope, I2C |
-| Panel | 0.96" 80×160 IPS, ST7735S | SPI, write-only, driven by TFT_eSPI |
+| Panel | 1.8" 128×160, ST7735S | SPI, write-only, driven by TFT_eSPI |
 | Battery | 1S LiPo, protected, ~1500 mAh | Must be a protected cell |
 | Charger | TP4056-class module | With protection and load-sharing so USB and battery do not fight |
 | Boost | 5 V step-up | Feeds the devkit's `VIN`; the devkit's own LDO makes 3.3 V |
@@ -49,7 +49,9 @@ Deliberately unused: `0/2/12/15` (strapping), `6–11` (flash), `1/3` (UART0), `
 
 ## Panel notes
 
-The 0.96" 80×160 "ST7735S" panel is a known-troublesome part: some units are mislabeled GC9106, and the visible window is offset from the controller's memory. TFT_eSPI drives it, but expect a custom `User_Setup` and possibly offset corrections before the image fills the window. Wire it carefully — it is unforgiving of loose jumpers.
+The 1.8" 128×160 ST7735S module is a common red-PCB part. TFT_eSPI drives it as `ST7735_REDTAB`; if the image is offset, fall back to a green-tab variant, and if the colours invert, add the inversion flag. Wire it carefully — it is unforgiving of loose jumpers.
+
+The panel is 3.3 V logic. Its onboard regulator tolerates 5 V on `VCC`, but feed 3.3 V so the backlight can share the rail. The `LED` pin must have a series resistor — 5 Ω from 3.3 V or 25 Ω from 5 V — since the backlight is rated to 3.2 V.
 
 The panel is write-only; MISO is not connected.
 

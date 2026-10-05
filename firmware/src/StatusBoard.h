@@ -16,8 +16,8 @@
 // tick does not flash the whole panel.
 class StatusBoard {
  public:
-  // Native geometry in portrait orientation, matching the 0.96" 80x160 panel.
-  static constexpr int16_t kWidth = 80;
+  // Native geometry in portrait orientation, matching the 1.8" 128x160 panel.
+  static constexpr int16_t kWidth = 128;
   static constexpr int16_t kHeight = 160;
 
   // The backlight is dimmable in eight steps above off: level 0 is off, and
