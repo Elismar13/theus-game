@@ -748,6 +748,33 @@ void test_restart_is_sent_to_the_session(void) {
                            transport.sent[0].frame.c_str());
 }
 
+void test_a_full_cfg_patch_is_accepted(void) {
+  Transport transport;
+  transport.begin();
+  transport.link.onClientConnected(1, 0);
+  transport.heardHello(1, 0);
+  transport.sent.clear();
+
+  // The dev panel submits all four Thresholds at once (#22).
+  TEST_ASSERT_TRUE(transport.link.onFrame(
+      1,
+      "{\"t\":\"cfg\",\"set\":{\"jump_g\":1.6,\"crawl_deg\":45,"
+      "\"crawl_hold_ms\":150,\"jump_refractory_ms\":250}}",
+      10));
+
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.6f, transport.link.thresholds().jump_g);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 45.0f, transport.link.thresholds().crawl_deg);
+  TEST_ASSERT_EQUAL_INT(150, transport.link.thresholds().crawl_hold_ms);
+  TEST_ASSERT_EQUAL_INT(250, transport.link.thresholds().jump_refractory_ms);
+  TEST_ASSERT_EQUAL_UINT32(1, transport.saved.size());
+  // The fresh `cfg` is the acknowledgement; the connect-time one already took seq 1.
+  TEST_ASSERT_EQUAL_UINT32(1, transport.sent.size());
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"cfg\",\"jump_g\":1.6,\"crawl_deg\":45,\"crawl_hold_ms\":150,"
+      "\"jump_refractory_ms\":250,\"seq\":2}",
+      transport.sent[0].frame.c_str());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_hello_opens_the_session_and_carries_the_thresholds);
@@ -784,5 +811,6 @@ int main() {
   RUN_TEST(test_each_intent_reaches_the_device_listener);
   RUN_TEST(test_no_intent_is_reported_before_the_link_is_up);
   RUN_TEST(test_restart_is_sent_to_the_session);
+  RUN_TEST(test_a_full_cfg_patch_is_accepted);
   return UNITY_END();
 }

@@ -17,7 +17,10 @@
 namespace protocol {
 
 constexpr size_t kMaxFields = 12;
-constexpr size_t kMaxKeyLength = 16;
+// Must cover the longest key in `docs/protocol.md` (`jump_refractory_ms`, 18
+// chars) plus its NUL, with room to grow: a shorter cap makes `parse` silently
+// reject any object that carries such a key (#22).
+constexpr size_t kMaxKeyLength = 24;
 constexpr size_t kMaxValueLength = 96;
 
 struct Field {
