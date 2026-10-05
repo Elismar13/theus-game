@@ -1,6 +1,6 @@
 import './style.css'
 import { TUNING, WORLD } from './core/constants'
-import { initial, runState, step } from './core/core'
+import { initial, runState, setGodMode, step } from './core/core'
 import type { GameState, Input } from './core/types'
 import { createDevPanel } from './devpanel/panel'
 import { createKeyboard } from './input/keyboard'
@@ -94,6 +94,9 @@ const devPanel =
         root: devEl,
         onCfg: (set) => link?.sendCfg(set),
         onMode: (mode) => link?.sendMode(mode),
+        onGodMode: (on) => {
+          state = setGodMode(state, on)
+        },
       })
 
 function readHighScore(): number {
@@ -118,6 +121,8 @@ function fit(): void {
 }
 
 let seed = (Date.now() ^ Math.floor(Math.random() * 0xffff)) >>> 0
+// God mode lives on the Run state itself, so `state.godMode` is the one source
+// of truth; the Dev Panel toggles it through `setGodMode`.
 let state: GameState = initial(seed, readHighScore())
 let accumulator = 0
 let previous = performance.now()
@@ -174,7 +179,7 @@ showLink('down')
 
 function restart(): void {
   seed = (seed + 1) >>> 0
-  state = initial(seed, state.highScore)
+  state = initial(seed, state.highScore, state.godMode)
   diedAt = null
   accumulator = 0
   // A new Run starts from neutral, never from a latch the last one was holding.

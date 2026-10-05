@@ -10,7 +10,7 @@ import {
 import { nextInt, nextRandom } from './rng'
 import type { GameState, Input, Obstacle, ObstacleKind, RunState } from './types'
 
-export function initial(seed: number, highScore = 0): GameState {
+export function initial(seed: number, highScore = 0, godMode = false): GameState {
   return {
     rng: (seed >>> 0) || 1,
     started: false,
@@ -28,9 +28,15 @@ export function initial(seed: number, highScore = 0): GameState {
     score: 0,
     highScore,
     hearts: TUNING.HEARTS,
+    godMode,
     invulnMs: 0,
     flashMs: 0,
   }
+}
+
+/** Turns the debug god mode on or off on a live Run. */
+export function setGodMode(state: GameState, on: boolean): GameState {
+  return { ...state, godMode: on }
 }
 
 /**
@@ -200,10 +206,14 @@ export function step(state: GameState, input: Input, dtMs: number): GameState {
   let flashMs = Math.max(0, state.flashMs - clampedMs)
 
   if (hit) {
-    hearts -= 1
-    if (hearts <= 0) {
-      hearts = 0
-      dead = true
+    // In god mode a hit is still shown (flash + invulnerability) so a mistimed
+    // Intent reads clearly, but it costs no Heart and never ends the Run.
+    if (!state.godMode) {
+      hearts -= 1
+      if (hearts <= 0) {
+        hearts = 0
+        dead = true
+      }
     }
     invulnMs = TUNING.INVULN_MS
     flashMs = TUNING.FLASH_MS
@@ -227,7 +237,7 @@ export function step(state: GameState, input: Input, dtMs: number): GameState {
     speed,
     runMs,
     score,
-    highScore: Math.max(state.highScore, score),
+    highScore: state.godMode ? state.highScore : Math.max(state.highScore, score),
     hearts,
     invulnMs,
     flashMs,
